@@ -72,3 +72,12 @@ Phase 5 reuses the three separately deployed Open5GS/UERANSIM PDU measurement ar
 [Phase-6 verified results](docs/PHASE6_RESULTS.md) | [experimental protocol](docs/PHASE6_PROTOCOL.md) | [existing 3GPP correlation mechanisms](docs/PHASE6_STANDARDS.md) | [GitHub Actions](.github/workflows/phase6-correlation.yml).
 
 Eighteen real UE PDU trials were linked by non-overlapping UTC windows to actual HTTP/2 Nsmf_PDUSession request-response streams, using TCP conversation + HTTP/2 stream ID. The experiment observes successful PDU attempts (6/6 normal, 6/6 recovery) and fail-stop behavior (0/6), along with 213 Nsmf request streams and 206 paired HTTP responses. **This is time-window association, not unique end-to-end procedure-ID linkage, and does not simulate a compromised NF.** The original PCAP is discarded and no subscriber secrets are shared.
+
+
+## Phase 7 — negative control: healthy SMF, unsupported requested DNN
+
+[Verified experimental report](docs/PHASE7_RESULTS.md) · [experimental protocol](docs/PHASE7_PROTOCOL.md) · [live real-5GC workflow](.github/workflows/phase7-semantic.yml) · [held-out Data Mining workflow](.github/workflows/phase7-generalization.yml).
+
+On a real Open5GS/UERANSIM lab, the SMF stayed running and registered throughout 18 attempts: baseline PDU 6/6 successful, unsupported DNN 0/6, recovery 6/6. At the unsupported DNN, only 2 temporally associated Nsmf HTTP/2 streams were observed (versus 34 for each normal/recovery phase). This is a legitimate UE DNN misconfiguration scenario, **not** compromise.
+
+A previously trained Random Forest-based falsified-report classifier falsely alarmed on all 6 truthful reports under this unseen legitimate failure, despite near-zero FPR on its original held-out conditions. A direct report-to-UE/NRF consistency rule raised 0 alarms. These results are a small experimental negative control, not field estimates or evidence of security against colluding compromised sources.
