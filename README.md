@@ -125,3 +125,12 @@ All 48 digital signatures and 48 deliberate replays were rechecked by a separate
 Five strategies sent an equal **12 REAL, signed HTTP/2 NRF queries each** (60 total). Only 3/12 stopped-SMF trials were probed by periodic sampling, 4/12 by the contextual rule, 0/12 by frozen RF, 3/12 by the hybrid, and 4/12 by the SMF-log rule. In 26 NRF queries during **UPF** stop, SMF nevertheless stayed registered in NRF. All 60 receipt signatures and 60 deliberate replays were independently rechecked from the same original artifact data.
 
 **Important reproducibility detail:** all three original network jobs succeeded; the original aggregation job failed due to a pandas variable scoping error. A dedicated auditor with only that code defect corrected then **succeeded on unchanged original ZIP files**. Neither real PDU measurement nor detector decisions were rerun or relabeled for this report. These benign laboratory outages are **not simulated cyberattacks**, and distinct signing processes are not independent administrative trust domains.
+
+
+## Phase 13 — cross-surface real NRF and UPF PFCP UDP socket KIE
+
+[Verified scientific report](docs/PHASE13_RESULTS.md) · [preregistered methodology](docs/PHASE13_PROTOCOL.md) · [information model and its trust limits](docs/PHASE13_METHOD.md) · [four successful GitHub Actions jobs](https://github.com/verge88/article_5G/actions/runs/38158596155).
+
+Three new disposable Open5GS/UERANSIM deployments completed **60 real PDU attempts**: 36 successes, 12 failures with stopped SMF and 12 failures with stopped UPF. Four equal-budget strategies generated **48 actually executed Ed25519-signed active KIE probes** (24 NRF HTTP/2 Discovery, 24 privileged UPF PFCP UDP/8805 socket observations); all 48 signatures and 48 replay rejections were independently rechecked.
+
+**Important negative finding:** with the two *specific* laboratory fail-stop causes under study, NRF-only produced 12/12 determinate cause labels, while UPF-only produced 6/12; six stopped-UPF socket reads were **unobservable**, NOT evidence of an absent socket. Mixed and presumed entropy-gain information selection both achieved 9/12 determinate labels and **chose identical sources**. No distinct information-optimization improvement was measured. A privileged Docker runtime indicator resolves the remaining cases **only as a lab oracle**, not as independent deployable attestation. UDP 8805 socket presence is not a proven PFCP association. This phase contains no malicious NF compromise.
