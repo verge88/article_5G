@@ -37,3 +37,13 @@ See [the phase-2 research protocol](docs/PHASE2_PROTOCOL.md) for scope and cavea
 ```bash
 python -m src.robustness --out-dir results
 ```
+
+## Phase 3 — measured real 5G PDU Session Establishment
+
+The [reproducible Open5GS + UERANSIM workflow](.github/workflows/real-5gc-pdu.yml) performs isolated, controlled real-NF PDU establishment trials in three phases (normal, SMF fail-stop, recovery). **All phase-3 evidence comes from actual 5GC/UERANSIM operations, not synthetic traffic.**
+
+- [Experiment design and privacy safeguards](docs/PHASE3_PROTOCOL.md)
+- [Verified measurements and scientific limitations](docs/PHASE3_RESULTS.md)
+- [Successful GitHub Actions execution](https://github.com/verge88/article_5G/actions/runs/38135609531)
+
+The experiment observed 3/3 successful PDU establishments normally, 0/3 while the SMF process was stopped, and 3/3 after recovery. Passive packet metadata included 127 HTTP/2 path occurrences of the `Nsmf_PDUSession` family (not 127 unique sessions). No inference about production intrusion-detection accuracy is warranted from nine procedure trials.
