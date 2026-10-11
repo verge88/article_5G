@@ -166,7 +166,7 @@ def aggregate(root:Path,out:Path):
     result={
         "scientific_scope":"prospective hybrid KIE evaluation on controlled SMF fail-stop, NOT attack detection",
         "source":"60 genuine Open5GS/UERANSIM PDU attempts in three separate GitHub runners",
-        "full_pdu_outcomes_by_phase":dict((phase, sum(int((pd.read_csv(root/f"phase12-real-{r}"/"live_trial_schedule.csv")).query("audit_phase_not_in_policy == @phase").ue_pdu_success_observed.sum()) for r in REPLICAS)) for phase in ("normal","upf_failstop","recovery_upf","smf_failstop","recovery_smf")),
+        "full_pdu_outcomes_by_phase":dict((phase, sum(int((lambda t: t.loc[t.audit_phase_not_in_policy.eq(phase),"ue_pdu_success_observed"].sum())(pd.read_csv(root/f"phase12-real-{r}"/"live_trial_schedule.csv"))) for r in REPLICAS)) for phase in ("normal","upf_failstop","recovery_upf","smf_failstop","recovery_smf")),
         "runs_have_separate_5gc_containers":True,
         "runs_have_independent_administrative_trust_domains":False,
         "all_agents_poll_the_same_NRF_within_each_replica":True,
