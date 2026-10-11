@@ -85,6 +85,9 @@ def fabricate_pair(frame: pd.DataFrame, *, seed: int) -> pd.DataFrame:
         reported_latency = float(
             record.ue_pdu_time_s if np.isfinite(record.ue_pdu_time_s) else 0
         )
+        representative_normal_latency = float(
+            frame.loc[frame.ue_pdu_session_accepted == 1, "ue_pdu_time_s"].median()
+        )
         for tampered in (0, 1):
             claimed_health = real_up
             claimed_outcome = real_ok
@@ -97,6 +100,14 @@ def fabricate_pair(frame: pd.DataFrame, *, seed: int) -> pd.DataFrame:
                     claimed_outcome = 1 - real_ok
             # Same trace-derived control variables in truthful and falsified
             # twins; only untrusted report columns are changed.
+            if claimed_outcome and not real_ok:
+                # A false claim of success uses a real observed successful
+                # latency from this deployment, so local fields look coherent.
+                reported_latency_claim = representative_normal_latency
+            elif not claimed_outcome:
+                reported_latency_claim = 0.
+            else:
+                reported_latency_claim = reported_latency
             nrf = int(record.nrf_advertised_smf_profiles > 0)
             pairs.append({
                 "deployment": str(record.deployment),
@@ -106,7 +117,7 @@ def fabricate_pair(frame: pd.DataFrame, *, seed: int) -> pd.DataFrame:
                 "tampered": int(tampered),
                 "reported_healthy": claimed_health,
                 "reported_pdu_success": claimed_outcome,
-                "reported_latency_s": reported_latency,
+                "reported_latency_s": reported_latency_claim,
                 "kie_ue_outcome_mismatch": abs(claimed_outcome - real_ok),
                 "kie_elapsed_s": float(record.elapsed_s),
                 "nrf_health_mismatch": abs(claimed_health - nrf),
