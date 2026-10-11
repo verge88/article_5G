@@ -35,7 +35,9 @@ def cmd(argv, *, cwd=None, timeout=30, check=True):
 
 
 def state(name):
-    return cmd(["docker", "inspect", "-f", "{{.State.Running}}", name], timeout=10) == "true"
+    p = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", name],
+                       capture_output=True, text=True, timeout=10)
+    return p.returncode == 0 and p.stdout.strip() == "true"
 
 
 def docker_logs(name, *, since):
