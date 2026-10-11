@@ -66,3 +66,9 @@ On the 24-trial held-out deployment, RF local-only detected 16/24 injected lies 
 Phase 5 reuses the three separately deployed Open5GS/UERANSIM PDU measurement artifacts from phase 4 (72 real PDU-session attempts). It introduces OFFLINE false, missing, stale and colluding witness observations, and compares local/RF methods with a simple contradiction rule and quorum methods that can abstain when observations are insufficient.
 
 **Key warning:** original PDU events are real, but adversarial manipulation is synthetic and external to the running 5G network. High attack recall in this setup does not establish deployment-grade stealth-compromise detection. Abstention coverage and trust assumptions must be reported alongside FPR and Recall.
+
+## Phase 6 — real HTTP/2 Nsmf/PDU time-window correlation
+
+[Phase-6 verified results](docs/PHASE6_RESULTS.md) | [experimental protocol](docs/PHASE6_PROTOCOL.md) | [existing 3GPP correlation mechanisms](docs/PHASE6_STANDARDS.md) | [GitHub Actions](.github/workflows/phase6-correlation.yml).
+
+Eighteen real UE PDU trials were linked by non-overlapping UTC windows to actual HTTP/2 Nsmf_PDUSession request-response streams, using TCP conversation + HTTP/2 stream ID. The experiment observes successful PDU attempts (6/6 normal, 6/6 recovery) and fail-stop behavior (0/6), along with 213 Nsmf request streams and 206 paired HTTP responses. **This is time-window association, not unique end-to-end procedure-ID linkage, and does not simulate a compromised NF.** The original PCAP is discarded and no subscriber secrets are shared.
