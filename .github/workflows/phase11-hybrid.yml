@@ -1,10 +1,10 @@
-name: phase11-live-equal-budget-3runner
+name: phase11-prospective-hybrid-vs-baselines
 
 on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/phase11-multirunner.yml"
+      - ".github/workflows/phase11-hybrid.yml"
       - "src/phase11_live.py"
       - "src/phase11_policy.py"
       - "src/phase11_audit.py"
