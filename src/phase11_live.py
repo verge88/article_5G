@@ -46,7 +46,7 @@ def csv_write(path:Path, items:list[dict]):
 def run(compose_dir:Path, past:Path, dnn_file:Path, out_dir:Path, *,
         replica:str, endpoint:str="http://172.22.0.12:7777",
         normal_timeout:int=18, invalid_timeout:int=14, failstop_timeout:int|None=None):
-    if os.environ.get("ALLOW_PHASE10_DISPOSABLE_5GC")!="yes":
+    if os.environ.get("ALLOW_PHASE11_DISPOSABLE_5GC")!="yes":
         raise RuntimeError("Only explicitly approved isolated 5GC lab can run fault trials")
     if "upstream_open5gs" not in str(compose_dir.resolve()):
         raise RuntimeError("Refusing to mutate a non-laboratory UE or SMF")
