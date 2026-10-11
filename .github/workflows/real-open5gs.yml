@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/real-open5gs.yml"
       - "src/real_sbi.py"
+      - "src/real_fault.py"
+      - "tests/test_real_fault.py"
       - "tests/test_real_sbi.py"
   workflow_dispatch:
 
@@ -26,7 +28,7 @@ jobs:
       - name: Install research dependencies
         run: python -m pip install -r requirements.txt
       - name: Test the probe parser
-        run: python -m pytest -q tests/test_real_sbi.py
+        run: python -m pytest -q tests/test_real_sbi.py tests/test_real_fault.py
       - name: Obtain pinned Open5GS deployment configuration
         run: |
           git clone --filter=blob:none https://github.com/herlesupreeth/docker_open5gs.git upstream_open5gs
@@ -42,6 +44,11 @@ jobs:
       - name: Collect live HTTP/2 NRF discovery KIE observations
         run: |
           python -m src.real_sbi --endpoint http://172.22.0.12:7777 --target AUSF --cycles 40 --ready-seconds 150 --out results/real_sbi_probes.csv
+      - name: Controlled AUSF stop and independent NRF consistency checks
+        env:
+          ALLOW_KILL_AUSF_IN_ISOLATED_LAB: "yes"
+        run: |
+          python -m src.real_fault --endpoint http://172.22.0.12:7777 --down-seconds 12 --recovery-seconds 12 --out results/real_fault_probes.csv
       - name: Capture evidence and reproducibility metadata
         if: always()
         run: |
