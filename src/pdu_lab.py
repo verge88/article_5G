@@ -40,7 +40,7 @@ def state(name):
 
 def docker_logs(name, *, since):
     # Logs stay local: only aggregated counters are published in GitHub artifacts.
-    return cmd(["docker", "logs", "--since", since, name], timeout=20, check=False)
+    p = subprocess.run(["docker", "logs", "--since", since, name],\n                       capture_output=True, text=True, timeout=20, check=False)\n    return p.stdout + "\n" + p.stderr
 
 
 def discovery_smf():
