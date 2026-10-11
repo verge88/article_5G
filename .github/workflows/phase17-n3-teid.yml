@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/phase17-teid-bridge.yml"
+      - ".github/workflows/phase17-n3-teid.yml"
       - "src/phase17_teid_bridge.py"
       - "src/phase17_live.py"
       - "src/phase17_audit.py"
@@ -126,7 +126,7 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          p=Path("results/phase17-independent/verified_teid-bridge_summary.json")
+          p=Path("results/phase17-independent/verified_teid_bridge_summary.json")
           x=json.loads(p.read_text())
           assert x["real_UE_trials"]==27
           assert x["signed_KIE_checked"]==27
