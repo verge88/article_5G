@@ -155,3 +155,16 @@ Three new disposable Open5GS/UERANSIM core networks performed **48 genuine PDU p
 **Caveats:** Selective drops may have affected control messages unrelated to the tested session, so the experiment does **not** establish a PFCP retransmission rate or session-message loss ratio. PFCP pairing in the dedicated time window does **not** prove binding to the specific NAS PDU ID. The N4 firewall counter/capture is a privileged host witness, not an independent trust domain or proof of malicious compromise.
 
 **Reproducibility:** initial trial [38161209566](https://github.com/verge88/article_5G/actions/runs/38161209566) failed after healthy PDU because the nth-rule counter was parsed from unstable \`iptables -L\` text. The successful trial reran **all three complete networks afresh**, with the counter read from canonical \`iptables-save -c\`. No incomplete initial observations were included in the final metrics.
+
+
+## Phase 16 — real N2/NGAP, Nsmf/SBI and N4/PFCP per-UE observations, honest identity abstention
+
+[Verified scientific results](docs/PHASE16_RESULTS.md) · [preregistered protocol](docs/PHASE16_PROTOCOL.md) · [formal identity proof limits](docs/PHASE16_IDENTITY_EVIDENCE.md) · [four successful GitHub Actions jobs](https://github.com/verge88/article_5G/actions/runs/38162843772).
+
+Three new disposable real Open5GS/UERANSIM 5GC deployments executed **27 genuine PDU attempts**, each with temporary simultaneous N2/SCTP, Nsmf/HTTP2 and N4/PFCP packet observation. Normal: **9/9 PDU successes**, nine windows showing NGAP PDU ID, Nsmf requests and PFCP Session Establishment Request/Response pairs. With both SMF and UPF up but N4 egress blocked: **0/9 successes**, Nsmf requests visible in all nine, NGAP PDU ID and PFCP Session Establishment pair not decoded, **196 actually dropped PFCP packets**. Recovery: **9/9 successes** with all three protocols observed in each window.
+
+**Identity rigor:** 18 windows contained all three protocol classes. The absence of a verified **NGAP PDU ID -> SM Context -> PFCP SEID** mapping means **zero cross-protocol identity joins are proven**, regardless of temporal co-occurrence. These are **18 unjustifiably confident claims avoided** by the evidence hierarchy, not 18 demonstrated false real-world session mappings. HTTP2 logical stream IDs, NGAP PDU IDs, PFCP seqno/SEID are distinct spaces.
+
+A separate GitHub Actions verifier authenticated **27/27 original Ed25519 capture-agent receipts**, rejected **27/27 replays** and independently recomputed the UE/NGAP/Nsmf/PFCP counts. Raw PCAP, SEIDs, IPs, subscriber IDs, HTTP2 headers and private keys are not exported. There is no hidden NF compromise, no authenticated independent NF owner, no standard 3GPP identity bridge and no proven cyber-intrusion detection rate.
+
+Full source artifact provenance: source commit \`a82160a2809f5dbaf5edde4f249375db0ae55e09\`; pinned Open5GS lab upstream commit \`1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3\`.
