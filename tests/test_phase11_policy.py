@@ -80,7 +80,7 @@ def test_no_host_state_phase_label_or_future_outcome_is_a_feature():
 
 
 def test_no_live_lab_without_explicit_authorization(tmp_path,monkeypatch):
-    monkeypatch.delenv("ALLOW_PHASE10_DISPOSABLE_5GC",raising=False)
+    monkeypatch.delenv("ALLOW_PHASE11_DISPOSABLE_5GC",raising=False)
     with pytest.raises(RuntimeError,match="isolated 5GC lab"):
         run(tmp_path/"upstream_open5gs",tmp_path/"historical",
             tmp_path/"old.csv",tmp_path/"out",replica="11")
