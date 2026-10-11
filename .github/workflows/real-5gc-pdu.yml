@@ -1,0 +1,103 @@
+name: real-5gc-pdu-session-phase3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/real-5gc-pdu.yml"
+      - "src/pdu_lab.py"
+      - "src/trace_audit.py"
+      - "scripts/prepare_5gc.sh"
+      - "tests/test_pdu_lab.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-pdu-procedure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - name: Checkout exact experiment code
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies and packet metadata decoder
+        run: |
+          python -m pip install -r requirements.txt pycryptodome
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcpdump tshark
+      - name: Test scientific safety and log parsing
+        run: |
+          python -m py_compile src/pdu_lab.py src/trace_audit.py src/real_sbi.py
+          python -m pytest -q tests/test_pdu_lab.py
+      - name: Obtain source-pinned 5G SA deployment
+        run: |
+          git clone --filter=blob:none https://github.com/herlesupreeth/docker_open5gs.git upstream_open5gs
+          git -C upstream_open5gs checkout 1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3
+          mkdir -p results/phase3
+          git -C upstream_open5gs rev-parse HEAD > results/phase3/upstream_sha.txt
+          git rev-parse HEAD > results/phase3/research_sha.txt
+      - name: Pull laboratory NF and gNB/UE binaries
+        run: |
+          docker pull ghcr.io/herlesupreeth/docker_open5gs:master
+          docker tag ghcr.io/herlesupreeth/docker_open5gs:master docker_open5gs
+          docker pull ghcr.io/herlesupreeth/docker_ueransim:master
+          docker tag ghcr.io/herlesupreeth/docker_ueransim:master docker_ueransim
+          docker image inspect ghcr.io/herlesupreeth/docker_open5gs:master \
+            --format '{{json .RepoDigests}}' > results/phase3/open5gs_image_digest.txt
+          docker image inspect ghcr.io/herlesupreeth/docker_ueransim:master \
+            --format '{{json .RepoDigests}}' > results/phase3/ueransim_image_digest.txt
+      - name: Start genuine AMF SMF UPF and provision laboratory SIM
+        run: |
+          bash scripts/prepare_5gc.sh
+      - name: Start isolated capture of actual SBI HTTP/2 signalling
+        run: |
+          sudo tcpdump -i any -s 0 -w "$RUNNER_TEMP/5g_sbi.pcap" 'tcp port 7777' >/dev/null 2>&1 &
+          echo $! > "$RUNNER_TEMP/5g_sbi_capture.pid"
+          sleep 2
+      - name: Collect real UE PDU session outcomes across controlled SMF outages
+        env:
+          ALLOW_LAB_ONLY_SMF_FAILURE: "yes"
+        run: |
+          python -m src.pdu_lab --compose-dir upstream_open5gs --out-dir results/phase3 --repeats 3 --normal-timeout 45 --failure-timeout 20
+      - name: Close capture before decoding
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/5g_sbi_capture.pid" ]; then
+            sudo kill -SIGINT "$(cat "$RUNNER_TEMP/5g_sbi_capture.pid")" || true
+            sleep 3
+          fi
+      - name: Decode subscriber-safe SBI service family counts
+        if: success()
+        run: |
+          python -m src.trace_audit --capture "$RUNNER_TEMP/5g_sbi.pcap" --out-dir results/phase3
+      - name: Record NF availability and provenance
+        if: always()
+        run: |
+          mkdir -p results/phase3
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > results/phase3/finished_utc.txt
+          for nf in amf smf upf nrf nr_gnb nr_ue; do
+            docker inspect -f '{{.State.Running}}' "$nf" > "results/phase3/state_"$nf".txt" 2>/dev/null || true
+          done
+          python -m pip freeze > results/phase3/packages.txt
+      - name: Publish only aggregate lab evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-5gc-pdu-phase3-results
+          path: results/phase3/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Tear down disposable 5GC and UE network
+        if: always()
+        run: |
+          docker rm -f nr_ue nr_gnb || true
+          if [ -d upstream_open5gs ]; then
+            cd upstream_open5gs
+            docker compose -f sa-deploy.yaml down -v || true
+          fi
+          rm -f "$RUNNER_TEMP/5g_sbi.pcap"
