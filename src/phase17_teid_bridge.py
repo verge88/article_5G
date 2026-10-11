@@ -9,8 +9,21 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 import re
+import subprocess
 
-from .phase16_crossplane import analyze as stage16_analyze,run_fields
+from .phase16_crossplane import analyze as stage16_analyze
+
+def run_fields(pcap:Path, *, display_filter:str,fields:tuple[str,...],decode_as:tuple[str,...]=())->list[str]:
+    """Keep all repeated TEID IEs per frame (occurrence=a), in memory only."""
+    args=["tshark","-r",str(pcap),*decode_as,"-Y",display_filter,
+          "-T","fields","-E","separator=/t","-E","occurrence=a",
+          "-E","aggregator=,"]
+    for field in fields:
+        args+=["-e",field]
+    p=subprocess.run(args,capture_output=True,text=True,timeout=85)
+    if p.returncode:
+        raise RuntimeError("Real N3 TEID parser fields unavailable: "+p.stderr[-320:])
+    return p.stdout.splitlines()
 
 def parse_ngap_teid(value:str)->int|None:
     """Wireshark ngap.gTP_TEID is 4-byte OCTET STRING, NOT decimal text.
