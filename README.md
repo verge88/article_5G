@@ -96,3 +96,12 @@ The eighth study reuses 90 real Open5GS/ UERANSIM PDU-session outcomes from earl
 In a real isolated Open5GS/UERANSIM lab, 16 genuine PDU attempts were made under normal, unauthorized DNN, controlled SMF stop and recovery conditions. Two Ed25519-signed active NRF discovery poller processes performed exactly 4 real HTTP/2 polls each. An adaptive context heuristic selected 4/4 fail-stop trials for active KIE, compared with 1/4 under periodic sampling, for the same request budget. Eight valid signed receipts and 48 successful rejection checks (field tampering, replay, stale receipt etc.) are preserved with PUBLIC keys but not secret key material.
 
 **Caveats:** both poller processes share the same GitHub runner and trust domain; this is not independent attestation or standard 3GPP authentication, and the experiment does not perform any malicious SMF compromise. Adaptive selection uses a predefined heuristic, not Data Mining, and body bytes are not total network overhead. The results must not be framed as attack-detection Recall or general operator-network performance.
+
+
+## Phase 10 — reproducible three-runner live KIE budget comparison
+
+[Verified scientific report](docs/PHASE10_RESULTS.md) · [preregistered experiment](docs/PHASE10_PROTOCOL.md) · [successful GitHub Actions](https://github.com/verge88/article_5G/actions/runs/38145977666).
+
+Three separate ephemeral runners hosted genuine Open5GS/UERANSIM networks with 48 real PDU attempts and **36 actually sent, Ed25519-signed HTTP/2 NRF discovery queries**, split equally between fixed, heuristic and pretrained Random Forest schedules. A separate job verified all 36 signatures, nonce orders and all 36 replay rejections.
+
+**Negative research result:** at the same 12-query budget, the simple DNN/UE-context heuristic checked 12/12 controlled SMF stop trials, fixed scheduling checked 3/12, while the frozen-threshold Random Forest checked 0/12. Although prior held-out ROC-AUC was 1.000, the new real stop scores fell below its previously calibrated threshold, causing all 12 ML queries to be fallback quota-filling. This is a **legitimate availability stress test, not attack detection**. Different GitHub runners do not provide separate administrative trust domains; body bytes are not total network overhead.
