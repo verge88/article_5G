@@ -107,7 +107,7 @@ def nrf_discovery(endpoint: str) -> dict:
 
 def produce_receipt(*, key_path:Path, agent_id:str, challenge:str,
                     trial_token:str, sequence:int, endpoint:str) -> dict:
-    if agent_id not in ("nrf_fixed","nrf_adaptive"):
+    if agent_id not in ("nrf_fixed","nrf_adaptive","nrf_ml"):
         raise ValueError("Unknown laboratory agent")
     if len(challenge) != 32 or any(c not in "0123456789abcdef" for c in challenge):
         raise ValueError("Expected a 128-bit random challenge as hexadecimal")
