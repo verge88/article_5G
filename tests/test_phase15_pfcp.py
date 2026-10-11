@@ -63,9 +63,10 @@ def test_every_second_outgoing_smf_pfcp_only():
 
 
 def test_counter_for_one_actual_smf_n4_drop_rule(monkeypatch):
-    text=("Chain OUTPUT (policy ACCEPT 210 packets, 12000 bytes)\n"
-          " pkts bytes target prot opt in out source destination\n"
-          "  9 880 DROP udp -- * * 0.0.0.0/0 0.0.0.0/0 udp dpt:8805 statistic mode nth every 2 packet 0\n")
+    text=("*filter\n"
+          ":OUTPUT ACCEPT [210:12000]\n"
+          "[9:880] -A OUTPUT -p udp -m udp --dport 8805 -m statistic --mode nth --every 2 --packet 0 -j DROP\n"
+          "COMMIT\n")
     monkeypatch.setattr("src.phase15_live.cmd",lambda *a,**kw:text)
     assert kernel_drop_count(2345)==9
 
