@@ -53,7 +53,7 @@ def test_context_does_not_override_reported_success_contradiction():
     data = sources(demonstration())
     contextual, _ = tri_state_policy(data, use_context=True)
     invalid_dnn_fake = (data.trial == 1) & (data.tampered == 1)
-    assert contextual[invalid_dnn_fake.to_numpy()].tolist() == [-1]  # no corroboration
+    assert contextual[invalid_dnn_fake.to_numpy()].tolist() == [1]  # independent subscription context corroborates UE
 
 
 def test_ue_missing_abstains_unless_no_other_independent_evidence():
@@ -101,3 +101,15 @@ def test_context_forgery_is_not_cryptographically_verified():
     # Deliberate safety property: provenance is only simulated; policy
     # cannot prove context correctness from these observations.
     assert (data.context_seen != data.dnn_authorized).all()
+
+
+def test_contextual_policy_does_not_clear_false_health_report():
+    data = demonstration()
+    # DNN denial is true, but the NF report is falsely 'unhealthy' while
+    # the independently observed NRF registry still advertises it.
+    mask = (data.trial == 1) & (data.tampered == 1)
+    data.loc[mask, "reported_pdu_success"] = 0
+    data.loc[mask, "reported_healthy"] = 0
+    probe = sources(data)
+    pred, _ = tri_state_policy(probe, use_context=True)
+    assert pred[mask.to_numpy()].tolist() == [-1]
