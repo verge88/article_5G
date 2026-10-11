@@ -133,7 +133,8 @@ def produce_receipt(*, key_path:Path, agent_id:str, challenge:str,
 
 def verify_receipt(receipt:dict, *, registered_keys:dict,
                    pending:dict, accepted_sequences:dict,
-                   now:float|None=None, max_age_s:float=20.) -> bool:
+                   now:float|None=None, max_age_s:float=20.,
+                   allowed_services:tuple[str,...]=("Nnrf_NFDiscovery_SMF",)) -> bool:
     """Return False if signature, nonce, issuer, freshness or order fail.
 
     pending maps issued 128-bit challenge -> (agent_id, trial_token, sequence).
@@ -143,7 +144,7 @@ def verify_receipt(receipt:dict, *, registered_keys:dict,
         payload=receipt["payload"]
         agent=payload["agent_id"]
         details=registered_keys[agent]
-        if payload["schema"]!=SCHEMA or payload["service"]!="Nnrf_NFDiscovery_SMF":
+        if payload["schema"]!=SCHEMA or payload["service"] not in allowed_services:
             return False
         if payload["key_id"]!=details["key_id"]:
             return False
