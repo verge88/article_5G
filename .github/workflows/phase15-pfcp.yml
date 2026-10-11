@@ -1,0 +1,147 @@
+name: phase15-UE-window-PFCP-partial-loss
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase15-pfcp.yml"
+      - "src/phase15_pfcp_windows.py"
+      - "src/phase15_live.py"
+      - "src/phase15_audit.py"
+      - "tests/test_phase15_pfcp.py"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  three-real-open5gs-5gc:
+    name: Live 5GC PFCP per-UE runner ${{ matrix.replica }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        replica: ["11","22","33"]
+    steps:
+      - name: Checkout immutable research revision
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install scientific and signing dependencies
+        run: python -m pip install -r requirements.txt pycryptodome
+      - name: Run PFCP association-limits, crypto and lab safety tests
+        run: |
+          python -m py_compile src/phase15_live.py src/phase15_pfcp_windows.py src/phase15_audit.py
+          python -m pytest -q tests/test_phase15_pfcp.py tests/test_phase14_n4.py tests/test_phase9_receipts.py
+      - name: Install real tshark and sandbox namespace firewall prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcpdump tshark iptables
+          command -v nsenter
+          command -v tshark
+          sudo -n true
+      - name: Retrieve pinned Open5GS 5GC and preserve exact versions
+        run: |
+          git clone --filter=blob:none https://github.com/herlesupreeth/docker_open5gs.git upstream_open5gs
+          git -C upstream_open5gs checkout 1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3
+          mkdir -p results/phase15
+          git rev-parse HEAD > results/phase15/research_commit.txt
+          git -C upstream_open5gs rev-parse HEAD > results/phase15/upstream_commit.txt
+          printf '${{ matrix.replica }}\n' > results/phase15/replica.txt
+      - name: Resolve real Open5GS and UERANSIM container image digests
+        run: |
+          docker pull ghcr.io/herlesupreeth/docker_open5gs:master
+          docker tag ghcr.io/herlesupreeth/docker_open5gs:master docker_open5gs
+          docker pull ghcr.io/herlesupreeth/docker_ueransim:master
+          docker tag ghcr.io/herlesupreeth/docker_ueransim:master docker_ueransim
+          docker image inspect ghcr.io/herlesupreeth/docker_open5gs:master \
+            --format '{{json .RepoDigests}}' > results/phase15/open5gs_image_digest.txt
+          docker image inspect ghcr.io/herlesupreeth/docker_ueransim:master \
+            --format '{{json .RepoDigests}}' > results/phase15/ueransim_image_digest.txt
+      - name: Provision isolated real Open5GS NRF AMF SMF UPF and UERANSIM
+        run: bash scripts/prepare_5gc.sh
+      - name: Run 16 genuine PDU windows and real half/full PFCP SMF egress drops
+        env:
+          ALLOW_PHASE15_DISPOSABLE_LAB: "yes"
+        run: |
+          python -m src.phase15_live \
+            --replica "${{ matrix.replica }}" \
+            --compose-dir upstream_open5gs \
+            --out results/phase15
+      - name: Record UTC time and exact research environment
+        if: always()
+        run: |
+          mkdir -p results/phase15
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > results/phase15/utc_finished.txt
+          python -m pip freeze > results/phase15/pip_environment.txt
+      - name: Publish sanitized per-trial PFCP and signed KIE only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase15-real-${{ matrix.replica }}
+          path: results/phase15/
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Erase ephemeral NF lab and network
+        if: always()
+        run: |
+          docker rm -f nr_ue nr_gnb || true
+          if [ -d upstream_open5gs ]; then
+            cd upstream_open5gs
+            docker compose -f sa-deploy.yaml down -v || true
+          fi
+
+  cross-runner-independent-crypto-and-PFCP-audit:
+    name: Independent signed per-UE PFCP and running NF witness verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [three-real-open5gs-5gc]
+    steps:
+      - name: Checkout independent source verifier
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install verifier requirements
+        run: python -m pip install -r requirements.txt
+      - name: Test no raw identifiers and strict signature protections
+        run: python -m pytest -q tests/test_phase15_pfcp.py tests/test_phase9_receipts.py
+      - name: Fetch all three real runner outputs on different GitHub machine
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phase15-real-*
+          path: phase15_inputs/
+          merge-multiple: false
+      - name: Re-verify every genuine KIE and recompute UE/PFCP ratios
+        run: |
+          python -m src.phase15_audit --root phase15_inputs --out results/phase15-independent
+          git rev-parse HEAD > results/phase15-independent/audit_source_commit.txt
+          python -m pip freeze > results/phase15-independent/environment.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/phase15-independent/verified_trial_pfcp_results.json")
+          x=json.loads(p.read_text())
+          assert x["n_real_UE_attempts"]==48
+          assert x["n_cryptographically_verified_KIE"]==72
+          assert x["n_replay_rejections"]==72
+          assert x["n_real_PFCP_capture_window_KIE"]==48
+          assert x["n_NRF_and_UPF_KIE"]==24
+          assert x["aggregated_real_UE_outcomes"]["normal"]["successful_PDU"]==12
+          assert x["aggregated_real_UE_outcomes"]["recovery"]["successful_PDU"]==12
+          print("48 original real PDU/PFCP windows independently authenticated")
+          PY
+      - name: Publish independent verified aggregate and code provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase15-independent-verified-trial-PFCP
+          path: results/phase15-independent/
+          retention-days: 90
+          if-no-files-found: warn
