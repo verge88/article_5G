@@ -1,0 +1,159 @@
+name: phase12-UPF-vs-SMF-availability-counterexample
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase12-causality.yml"
+      - "src/phase12_live.py"
+      - "src/phase12_policy.py"
+      - "src/phase12_audit.py"
+      - "tests/test_phase12_policy.py"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  three-disposable-real-5gc:
+    name: Real 5GC Open5GS replica ${{ matrix.replica }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 29
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        replica: ["11", "22", "33"]
+    steps:
+      - name: Checkout exact research revision
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install signed KIE and Data Mining dependencies
+        run: |
+          python -m pip install -r requirements.txt pycryptodome
+      - name: Test leakage prevention, quota policy, crypto and lab guards
+        run: |
+          python -m py_compile src/phase12_policy.py src/phase12_live.py src/phase12_audit.py
+          python -m pytest -q tests/test_phase12_policy.py tests/test_phase9_receipts.py
+      - name: Download original genuine PDU evidence from three prior runners
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38136404527
+          github-token: ${{ github.token }}
+          pattern: phase4-real-*
+          path: phase4_inputs/
+          merge-multiple: false
+      - name: Download prior real DNN-negative-control evidence
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38139938568
+          github-token: ${{ github.token }}
+          name: phase7-real-healthy-smf-semantic-fault
+          path: phase7_inputs/
+      - name: Check pinned lab provenance and historical training validity
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          import json
+          for dep in (101,202,303):
+              p=Path(f"phase4_inputs/phase4-real-{dep}")
+              assert len(pd.read_csv(p/"pdu_trials.csv")) == 24
+              assert (p/"upstream_commit.txt").read_text().strip() == "1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3"
+              assert json.loads((p/"sbi_trace_summary.json").read_text())["observed_nsmf_pdu_session"]
+          dnn=pd.read_csv("phase7_inputs/real_pdu_windows.csv")
+          assert len(dnn)==18 and (dnn.smf_running_witness==1).all()
+          print("Historically measured training and validation inputs independently verified")
+          PY
+      - name: Pin real Open5GS source and experiment provenance
+        run: |
+          git clone --filter=blob:none https://github.com/herlesupreeth/docker_open5gs.git upstream_open5gs
+          git -C upstream_open5gs checkout 1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3
+          mkdir -p results/phase12
+          git rev-parse HEAD > results/phase12/research_commit.txt
+          git -C upstream_open5gs rev-parse HEAD > results/phase12/lab_source_commit.txt
+          echo "${{ matrix.replica }}" > results/phase12/replica.txt
+      - name: Pull actual 5G Core and UERANSIM images and record immutable digests
+        run: |
+          docker pull ghcr.io/herlesupreeth/docker_open5gs:master
+          docker tag ghcr.io/herlesupreeth/docker_open5gs:master docker_open5gs
+          docker pull ghcr.io/herlesupreeth/docker_ueransim:master
+          docker tag ghcr.io/herlesupreeth/docker_ueransim:master docker_ueransim
+          docker image inspect ghcr.io/herlesupreeth/docker_open5gs:master \
+            --format '{{json .RepoDigests}}' > results/phase12/open5gs_image_digest.txt
+          docker image inspect ghcr.io/herlesupreeth/docker_ueransim:master \
+            --format '{{json .RepoDigests}}' > results/phase12/ueransim_image_digest.txt
+      - name: Provision isolated real AMF SMF UPF NRF and UERANSIM gNB/UE
+        run: bash scripts/prepare_5gc.sh
+      - name: Compare FIVE real active KIE schedules on genuine PDU procedures
+        env:
+          ALLOW_PHASE12_DISPOSABLE_5GC: "yes"
+        run: |
+          python -m src.phase12_live \
+            --replica "${{ matrix.replica }}" \
+            --compose-dir upstream_open5gs \
+            --previous-data phase4_inputs \
+            --dnn-measurements phase7_inputs/real_pdu_windows.csv \
+            --out results/phase12
+      - name: Record exact Python environment and UTC end of experiment
+        if: always()
+        run: |
+          mkdir -p results/phase12
+          python -m pip freeze > results/phase12/environment.txt
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > results/phase12/finished_utc.txt
+      - name: Publish public keys, signed real NRF receipt data and all active costs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase12-real-${{ matrix.replica }}
+          path: results/phase12/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Restore and erase private lab environments
+        if: always()
+        run: |
+          docker rm -f nr_ue nr_gnb || true
+          if [ -d upstream_open5gs ]; then
+            cd upstream_open5gs
+            docker compose -f sa-deploy.yaml down -v || true
+          fi
+
+  independent-job-receipt-audit:
+    name: Cross-runner independent verification and results
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: [three-disposable-real-5gc]
+    steps:
+      - name: Checkout independent scientific verification code
+        uses: actions/checkout@v4
+      - name: Prepare Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install cryptography and analysis packages
+        run: python -m pip install -r requirements.txt
+      - name: Verify independent audit unit tests
+        run: python -m pytest -q tests/test_phase12_policy.py tests/test_phase9_receipts.py
+      - name: Download all 3 measured live NRF result artifacts on another runner
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phase12-real-*
+          path: phase12_inputs/
+          merge-multiple: false
+      - name: Verify EVERY signature nonce ordering and real PDU source then aggregate
+        run: |
+          python -m src.phase12_audit --root phase12_inputs --out results/phase12-aggregation
+          git rev-parse HEAD > results/phase12-aggregation/audit_code_commit.txt
+          python -m pip freeze > results/phase12-aggregation/audit_environment.txt
+      - name: Publish explicit statistical limits and verified primary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase12-independent-verified-comparison
+          path: results/phase12-aggregation/
+          if-no-files-found: warn
+          retention-days: 90
