@@ -1,0 +1,147 @@
+name: phase16-UE-window-N2-SBI-N4-identity-nonjoin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase16-threeplane.yml"
+      - "src/phase16_crossplane.py"
+      - "src/phase16_live.py"
+      - "src/phase16_audit.py"
+      - "tests/test_phase16_crossplane.py"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  three-real-open5gs-5gc:
+    name: Live 5GC N2 Nsmf N4 tri-plane UE runner ${{ matrix.replica }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        replica: ["11","22","33"]
+    steps:
+      - name: Checkout immutable research revision
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install scientific and signing dependencies
+        run: python -m pip install -r requirements.txt pycryptodome
+      - name: Run PFCP association-limits, crypto and lab safety tests
+        run: |
+          python -m py_compile src/phase16_live.py src/phase16_crossplane.py src/phase16_audit.py
+          python -m pytest -q tests/test_phase16_crossplane.py tests/test_phase14_n4.py tests/test_phase9_receipts.py
+      - name: Install real tshark and sandbox namespace firewall prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcpdump tshark iptables
+          command -v nsenter
+          command -v tshark
+          sudo -n true
+      - name: Retrieve pinned Open5GS 5GC and preserve exact versions
+        run: |
+          git clone --filter=blob:none https://github.com/herlesupreeth/docker_open5gs.git upstream_open5gs
+          git -C upstream_open5gs checkout 1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3
+          mkdir -p results/phase16
+          git rev-parse HEAD > results/phase16/research_commit.txt
+          git -C upstream_open5gs rev-parse HEAD > results/phase16/upstream_commit.txt
+          printf '${{ matrix.replica }}\n' > results/phase16/replica.txt
+      - name: Resolve real Open5GS and UERANSIM container image digests
+        run: |
+          docker pull ghcr.io/herlesupreeth/docker_open5gs:master
+          docker tag ghcr.io/herlesupreeth/docker_open5gs:master docker_open5gs
+          docker pull ghcr.io/herlesupreeth/docker_ueransim:master
+          docker tag ghcr.io/herlesupreeth/docker_ueransim:master docker_ueransim
+          docker image inspect ghcr.io/herlesupreeth/docker_open5gs:master \
+            --format '{{json .RepoDigests}}' > results/phase16/open5gs_image_digest.txt
+          docker image inspect ghcr.io/herlesupreeth/docker_ueransim:master \
+            --format '{{json .RepoDigests}}' > results/phase16/ueransim_image_digest.txt
+      - name: Provision isolated real Open5GS NRF AMF SMF UPF and UERANSIM
+        run: bash scripts/prepare_5gc.sh
+      - name: Run 9 genuine PDU windows and N2 Nsmf N4 capture with real restricted N4
+        env:
+          ALLOW_PHASE16_DISPOSABLE_LAB: "yes"
+        run: |
+          python -m src.phase16_live \
+            --replica "${{ matrix.replica }}" \
+            --compose-dir upstream_open5gs \
+            --out results/phase16
+      - name: Record UTC time and exact research environment
+        if: always()
+        run: |
+          mkdir -p results/phase16
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > results/phase16/utc_finished.txt
+          python -m pip freeze > results/phase16/pip_environment.txt
+      - name: Publish sanitized per-trial NGAP Nsmf PFCP and signed KIE only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase16-real-${{ matrix.replica }}
+          path: results/phase16/
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Erase ephemeral NF lab and network
+        if: always()
+        run: |
+          docker rm -f nr_ue nr_gnb || true
+          if [ -d upstream_open5gs ]; then
+            cd upstream_open5gs
+            docker compose -f sa-deploy.yaml down -v || true
+          fi
+
+  cross-runner-independent-crypto-and-PFCP-audit:
+    name: Independent signed per-UE NGAP Nsmf PFCP session identity verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [three-real-open5gs-5gc]
+    steps:
+      - name: Checkout independent source verifier
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install verifier requirements
+        run: python -m pip install -r requirements.txt
+      - name: Test no raw identifiers and strict signature protections
+        run: python -m pytest -q tests/test_phase16_crossplane.py tests/test_phase9_receipts.py
+      - name: Fetch all three real runner outputs on different GitHub machine
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phase16-real-*
+          path: phase16_inputs/
+          merge-multiple: false
+      - name: Re-verify every genuine KIE and recompute UE/PFCP ratios
+        run: |
+          python -m src.phase16_audit --root phase16_inputs --out results/phase16-independent
+          git rev-parse HEAD > results/phase16-independent/audit_source_commit.txt
+          python -m pip freeze > results/phase16-independent/environment.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/phase16-independent/verified_threeplane_summary.json")
+          x=json.loads(p.read_text())
+          assert x["real_UE_trials"]==27
+          assert x["signed_KIE_checked"]==27
+          assert x["replays_rejected"]==27
+          assert x["cross_protocol_identity_mapping_proven"] is False
+          assert x["combined_by_phase"]["normal"]["real_UE_PDU_success"]==9
+          assert x["combined_by_phase"]["recovery"]["real_UE_PDU_success"]==9
+          assert x["combined_by_phase"]["n4_full_drop"]["legitimate_cross_protocol_identity_joins"]==0
+          print("27 actual UE windows, signed N2 Nsmf N4 evidence and strict non-join independently verified")
+          PY
+      - name: Publish independent verified aggregate and code provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase16-independent-verified-threeplane
+          path: results/phase16-independent/
+          retention-days: 90
+          if-no-files-found: warn
