@@ -1,0 +1,68 @@
+name: phase12-reverify-original-real-PDU-artifacts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase12-reaudit.yml"
+      - "src/phase12_audit.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify-unchanged-actual-5gc-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout corrected scientific verification program
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install cryptography and pandas scientific dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify independent audit dependencies and basic controls
+        run: |
+          python -m py_compile src/phase12_audit.py src/phase12_policy.py
+          python -m pytest -q tests/test_phase12_policy.py tests/test_phase9_receipts.py
+      - name: Retrieve original three successful LIVE Open5GS runner outputs unchanged
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38154118373
+          github-token: ${{ github.token }}
+          pattern: phase12-real-*
+          path: phase12_inputs/
+          merge-multiple: false
+      - name: Independently verify original Ed25519 signatures and PDU/UPF evidence
+        run: |
+          python -m src.phase12_audit \
+            --root phase12_inputs \
+            --out results/phase12-verified-original-data
+          git rev-parse HEAD > results/phase12-verified-original-data/verification_commit.txt
+          printf '38154118373\n' > results/phase12-verified-original-data/original_measured_run.txt
+          python -m pip freeze > results/phase12-verified-original-data/environment.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("results/phase12-verified-original-data/aggregated_summary.json")
+          x=json.loads(p.read_text())
+          assert x["signatures_verified"]==60
+          assert x["replay_attempts_rejected"]==60
+          assert len(x["arms"])==5
+          assert {a["actual_active_nrf_queries"] for a in x["arms"]}=={12}
+          assert x["full_pdu_outcomes_by_phase"]["upf_failstop"]==0
+          assert x["full_pdu_outcomes_by_phase"]["smf_failstop"]==0
+          print("Original network trials and all cryptographic receipts validated")
+          PY
+      - name: Publish checked scientific results with source-run provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase12-verified-original-measurements
+          path: results/phase12-verified-original-data/
+          if-no-files-found: warn
+          retention-days: 90
