@@ -1,0 +1,67 @@
+name: phase5-witness-trust-sensitivity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase5-reliability.yml"
+      - "src/phase5_reliability.py"
+      - "tests/test_phase5_reliability.py"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  real-derived-trust-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout exact research source revision
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install evaluation dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check abstention and witness-source grouping rules
+        run: |
+          python -m py_compile src/phase5_reliability.py
+          python -m pytest -q tests/test_phase5_reliability.py tests/test_phase4_eval.py
+      - name: Fetch existing real PDU artifacts from phase 4
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38136404527
+          github-token: ${{ github.token }}
+          pattern: phase4-real-*
+          path: phase4_inputs/
+          merge-multiple: false
+      - name: Validate PDU source provenance and complete deployment splits
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          for ident in (101,202,303):
+              path = Path(f"phase4_inputs/phase4-real-{ident}")
+              assert (path/"upstream_commit.txt").read_text().strip() == "1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3"
+              assert len(pd.read_csv(path/"pdu_trials.csv")) == 24
+              assert json.loads((path/"sbi_trace_summary.json").read_text())["observed_nsmf_pdu_session"]
+          print("Verified 3 independent deployments with 24 real PDU trials each")
+          PY
+      - name: Evaluate compromised, stale and missing independent observations
+        run: |
+          python -m src.phase5_reliability --input-dir phase4_inputs --out-dir results/phase5
+          git rev-parse HEAD > results/phase5/source_commit.txt
+          python -m pip freeze > results/phase5/environment.txt
+          echo "38136404527" > results/phase5/input_phase4_workflow_run.txt
+      - name: Upload reproducible evidence, including uncertainty and abstentions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-real-derived-trust-stress
+          path: results/phase5/
+          if-no-files-found: warn
+          retention-days: 90
