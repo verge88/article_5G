@@ -1,0 +1,144 @@
+name: phase14-real-PFCP-N4-link-interruption
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase14-n4.yml"
+      - "src/phase14_n4_live.py"
+      - "src/phase14_audit.py"
+      - "tests/test_phase14_n4.py"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  three-real-running-nf-n4-labs:
+    name: Live Open5GS SMF/UPF PFCP lab ${{ matrix.replica }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        replica: ["11","22","33"]
+    steps:
+      - name: Checkout exact phase14 research commit
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install cryptography scientific dependencies
+        run: python -m pip install -r requirements.txt pycryptodome
+      - name: Test boundary guards, live PFCP observation and Ed25519 signatures
+        run: |
+          python -m py_compile src/phase14_n4_live.py src/phase14_audit.py
+          python -m pytest -q tests/test_phase14_n4.py tests/test_phase13_policy.py tests/test_phase9_receipts.py
+      - name: Install real PFCP UDP capture decoder and isolated namespace firewall
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcpdump tshark iptables
+          command -v nsenter
+          command -v tcpdump
+          command -v tshark
+          sudo -n true
+      - name: Clone pinned ephemeral 5GC source
+        run: |
+          git clone --filter=blob:none https://github.com/herlesupreeth/docker_open5gs.git upstream_open5gs
+          git -C upstream_open5gs checkout 1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3
+          mkdir -p results/phase14
+          git rev-parse HEAD > results/phase14/research_commit.txt
+          git -C upstream_open5gs rev-parse HEAD > results/phase14/upstream_commit.txt
+          printf '${{ matrix.replica }}\n' > results/phase14/replica.txt
+      - name: Pin actual NF and UE image content digests
+        run: |
+          docker pull ghcr.io/herlesupreeth/docker_open5gs:master
+          docker tag ghcr.io/herlesupreeth/docker_open5gs:master docker_open5gs
+          docker pull ghcr.io/herlesupreeth/docker_ueransim:master
+          docker tag ghcr.io/herlesupreeth/docker_ueransim:master docker_ueransim
+          docker image inspect ghcr.io/herlesupreeth/docker_open5gs:master \
+             --format '{{json .RepoDigests}}' > results/phase14/open5gs_digest.txt
+          docker image inspect ghcr.io/herlesupreeth/docker_ueransim:master \
+             --format '{{json .RepoDigests}}' > results/phase14/ueransim_digest.txt
+      - name: Start actual Open5GS 5GC and UERANSIM
+        run: bash scripts/prepare_5gc.sh
+      - name: Measure live PFCP, temporarily interrupt only SMF UDP8805 egress, restore
+        env:
+          ALLOW_PHASE14_DISPOSABLE_5GC: "yes"
+        run: |
+          python -m src.phase14_n4_live \
+             --replica "${{ matrix.replica }}" \
+             --compose-dir upstream_open5gs \
+             --out results/phase14
+      - name: Record exact lab completion metadata
+        if: always()
+        run: |
+          mkdir -p results/phase14
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > results/phase14/utc_finished.txt
+          python -m pip freeze > results/phase14/pip_environment.txt
+      - name: Publish only sanitized real PFCP types, PDU outcomes, signed reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase14-real-${{ matrix.replica }}
+          path: results/phase14/
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Delete ephemeral NF containers and network
+        if: always()
+        run: |
+          docker rm -f nr_ue nr_gnb || true
+          if [ -d upstream_open5gs ]; then
+            cd upstream_open5gs
+            docker compose -f sa-deploy.yaml down -v || true
+          fi
+
+  independent-pfcp-evidence-audit:
+    name: Separate runner verify signed PFCP traces and independent network outcomes
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: [three-real-running-nf-n4-labs]
+    steps:
+      - name: Checkout scientific verifier in separate GitHub runner
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install verification requirements
+        run: python -m pip install -r requirements.txt
+      - name: Recheck signature tampering and controlled lab guards
+        run: python -m pytest -q tests/test_phase14_n4.py tests/test_phase9_receipts.py
+      - name: Download unchanged measured real PFCP and UE observations
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phase14-real-*
+          path: phase14_inputs/
+          merge-multiple: false
+      - name: Verify all 27 signed genuine measurements and summarize control impact
+        run: |
+          python -m src.phase14_audit --root phase14_inputs --out results/phase14-verified
+          git rev-parse HEAD > results/phase14-verified/audit_code_commit.txt
+          python -m pip freeze > results/phase14-verified/environment.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("results/phase14-verified/verified_pfcp_results.json").read_text())
+          assert report["total_actual_ue_pdu_attempts"]==36
+          assert report["total_signed_reports_accepted"]==27
+          assert report["total_replays_rejected"]==27
+          assert report["real_pdu_success_by_phase"]["normal"]==12
+          assert report["real_pdu_success_by_phase"]["recovery"]==12
+          print("Separate runner authenticated real KIE and controlled-running-NF evidence")
+          PY
+      - name: Publish verified PFCP/PDU scientific summaries (no PCAP)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase14-independent-verified-PFCP
+          path: results/phase14-verified/
+          if-no-files-found: warn
+          retention-days: 90
