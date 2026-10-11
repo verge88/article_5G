@@ -81,3 +81,9 @@ Eighteen real UE PDU trials were linked by non-overlapping UTC windows to actual
 On a real Open5GS/UERANSIM lab, the SMF stayed running and registered throughout 18 attempts: baseline PDU 6/6 successful, unsupported DNN 0/6, recovery 6/6. At the unsupported DNN, only 2 temporally associated Nsmf HTTP/2 streams were observed (versus 34 for each normal/recovery phase). This is a legitimate UE DNN misconfiguration scenario, **not** compromise.
 
 A previously trained Random Forest-based falsified-report classifier falsely alarmed on all 6 truthful reports under this unseen legitimate failure, despite near-zero FPR on its original held-out conditions. A direct report-to-UE/NRF consistency rule raised 0 alarms. These results are a small experimental negative control, not field estimates or evidence of security against colluding compromised sources.
+
+## Phase 8 — context-aware selective KIE verification and Data Mining
+
+[Verified scientific results](docs/PHASE8_RESULTS.md) · [experimental protocol](docs/PHASE8_PROTOCOL.md) · [source](src/phase8_contextual.py) · [Actions](.github/workflows/phase8-contextual.yml).
+
+The eighth study reuses 90 real Open5GS/ UERANSIM PDU-session outcomes from earlier Actions runs. False NF reports and witness faults are introduced **OFFLINE** and are not real compromised SMFs. Results show a three-valued context-aware policy can improve decision coverage on valid unsupported-DNN denials relative to a strict UE–AMF corroboration policy, without measured FPR change in this tiny laboratory sample. Nevertheless, a simpler direct UE–NRF disagreement rule outperforms it on clean witness data, and colluding corrupt observers invalidate both methods. Data Mining prioritization for undecided reports is evaluated only offline; no active follow-up KIE was sent in phase 8. Read limitations before citing these results.
