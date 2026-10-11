@@ -1,0 +1,83 @@
+name: phase8-context-aware-KIE-integrity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase8-contextual.yml"
+      - "src/phase8_contextual.py"
+      - "tests/test_phase8_contextual.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  context-aware-trust-on-real-pdu-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Checkout exact model and scientific protocol
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install analytic libraries
+        run: python -m pip install -r requirements.txt
+      - name: Test three-valued semantics, scenario source grouping and report-label independence
+        run: |
+          python -m py_compile src/phase8_contextual.py
+          python -m pytest -q tests/test_phase8_contextual.py tests/test_phase4_eval.py
+      - name: Download three original measured Open5GS PDU deployment artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38136404527
+          github-token: ${{ github.token }}
+          pattern: phase4-real-*
+          path: phase4_inputs/
+          merge-multiple: false
+      - name: Download independent real Open5GS healthy-SMF DNN denial measurements
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38139938568
+          github-token: ${{ github.token }}
+          name: phase7-real-healthy-smf-semantic-fault
+          path: phase7_inputs/
+      - name: Verify provenance, genuine subscriber outcomes, complete source splits
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          for dep in (101,202,303):
+              folder=Path(f"phase4_inputs/phase4-real-{dep}")
+              assert len(pd.read_csv(folder/"pdu_trials.csv")) == 24
+              assert (folder/"upstream_commit.txt").read_text().strip() == "1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3"
+              assert json.loads((folder/"sbi_trace_summary.json").read_text())["observed_nsmf_pdu_session"]
+          folder=Path("phase7_inputs")
+          frame=pd.read_csv(folder/"real_pdu_windows.csv")
+          assert len(frame)==18 and (frame.smf_running_witness==1).all()
+          assert frame.loc[frame.phase=="invalid_dnn","ue_pdu_session_accepted"].eq(0).all()
+          assert frame.loc[frame.phase=="normal","ue_pdu_session_accepted"].eq(1).all()
+          assert frame.loc[frame.phase=="recovery","ue_pdu_session_accepted"].eq(1).all()
+          print("Genuine Open5GS and UERANSIM source evidence: 90 real measured PDU attempts")
+          PY
+      - name: Evaluate contextual verification vs RF, direct KIE rules and explicit abstentions
+        run: |
+          python -m src.phase8_contextual \
+            --real-dir phase4_inputs \
+            --dnn-path phase7_inputs/real_pdu_windows.csv \
+            --out-dir results/phase8
+          git rev-parse HEAD > results/phase8/source_commit.txt
+          python -m pip freeze > results/phase8/environment.txt
+          printf '38136404527\n38139938568\n' > results/phase8/verified_source_runs.txt
+      - name: Publish complete scientific results, including negative or low-coverage outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-context-trust-comparison
+          path: results/phase8/
+          if-no-files-found: warn
+          retention-days: 90
