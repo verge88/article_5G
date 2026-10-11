@@ -105,3 +105,12 @@ In a real isolated Open5GS/UERANSIM lab, 16 genuine PDU attempts were made under
 Three separate ephemeral runners hosted genuine Open5GS/UERANSIM networks with 48 real PDU attempts and **36 actually sent, Ed25519-signed HTTP/2 NRF discovery queries**, split equally between fixed, heuristic and pretrained Random Forest schedules. A separate job verified all 36 signatures, nonce orders and all 36 replay rejections.
 
 **Negative research result:** at the same 12-query budget, the simple DNN/UE-context heuristic checked 12/12 controlled SMF stop trials, fixed scheduling checked 3/12, while the frozen-threshold Random Forest checked 0/12. Although prior held-out ROC-AUC was 1.000, the new real stop scores fell below its previously calibrated threshold, causing all 12 ML queries to be fallback quota-filling. This is a **legitimate availability stress test, not attack detection**. Different GitHub runners do not provide separate administrative trust domains; body bytes are not total network overhead.
+
+
+## Phase 11 — prospective semantic KIE safety override with one exploration query
+
+[Verified results](docs/PHASE11_RESULTS.md) · [experimental protocol](docs/PHASE11_PROTOCOL.md) · [prior art / related work](docs/PHASE11_RELATED_WORK.md) · [successful 3-runner workflow](https://github.com/verge88/article_5G/actions/runs/38150830363).
+
+In three new independent *compute* environments under the same GitHub administrative authority, 48 genuine Open5GS/UERANSIM PDU attempts and 48 actual Ed25519-signed NRF HTTP/2 queries were observed. Four policies consumed 12 queries each. Controlled laboratory SMF fail-stop coverage: **fixed 3/12, contextual heuristic 12/12, frozen Random Forest 3/12, hybrid semantic override + one reserved exploratory query 9/12**. The hybrid queried three non-outage procedures (one per runner); the simpler semantic heuristic retained higher outage coverage. The historical feature-support range flagged more new failures under longer trial timeouts but its independent added utility was not established.
+
+All 48 digital signatures and 48 deliberate replays were rechecked by a separate GitHub Actions job. The experiment **does not** demonstrate malicious 5G NF compromise, trusted independent administrative agents, early outage detection, or a novel calibrated drift-detection algorithm. The current phase is a carefully limited study of *active control allocation under an equal observed budget*.
