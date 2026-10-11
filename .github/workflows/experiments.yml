@@ -3,6 +3,10 @@ name: research-experiments
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/experiments.yml"
   workflow_dispatch:
 
 permissions:
@@ -24,21 +28,23 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-      - name: Unit tests and data-leakage checks
+      - name: Unit tests and data-leakage guards
         run: python -m pytest -q
-      - name: Scientific feature ablation and shifted tests
+      - name: Reproduce original ablations and shifted-distribution tests
         run: python -m src.experiment --out-dir results
-      - name: Preserve environment and source revision
+      - name: Evaluate sensitivity to compromised witnesses and false testimony
+        run: python -m src.robustness --out-dir results
+      - name: Record environment and exact commit
         if: always()
         run: |
           mkdir -p results
           python -m pip freeze > results/environment.txt
           git rev-parse HEAD > results/source_commit.txt
-      - name: Save reproducible research artifacts
+      - name: Upload numerical evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: 5g-kie-experiment-results
+          name: 5g-kie-robustness-experiment
           path: results/
           if-no-files-found: warn
           retention-days: 90
