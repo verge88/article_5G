@@ -98,10 +98,17 @@ def tri_state_policy(data, *, use_context=False, lab_oracle=False):
         # Context tells which denial is *allowed*, not whether a local
         # report is true; never equate PDU failure with compromise.
         if use_context and not pd.isna(rec.context_seen):
-            if rec.context_seen == 0 and claimed_outcome == 0 and ue == 0 and nrf == 1:
-                # Only the context-aware extension uses this evidence.
-                decision[i] = 0
-                reasons.append("documented_dnn_denial_consistent")
+            if rec.context_seen == 0 and ue == 0 and nrf == 1 and claimed_health == 1:
+                # A separately verified DNN subscription policy plus UE's
+                # observed denial can corroborate the claimed PDU outcome.
+                # This requires authenticated, independent context provenance;
+                # the current lab cannot establish that guarantee.
+                if claimed_outcome == 0:
+                    decision[i] = 0
+                    reasons.append("documented_dnn_denial_consistent")
+                else:
+                    decision[i] = 1
+                    reasons.append("documented_dnn_denial_contradicts_success_claim")
                 continue
         if pd.isna(amf) or amf != ue:
             reasons.append("independent_outcome_sources_disagree")
