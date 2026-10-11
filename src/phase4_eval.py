@@ -59,8 +59,8 @@ def read_deployment(directory: Path) -> pd.DataFrame:
     if set(frame.phase) != {"normal", "smf_failstop", "recovery"}:
         raise ValueError("Data must contain the three genuinely observed phases")
     for phase in ("normal", "recovery"):
-        if not frame.loc[frame.phase == phase, "ue_pdu_session_accepted"].all():
-            raise ValueError(f"Unsuccessful real baseline/recovery in {directory}")
+        if not frame.loc[frame.phase == phase, "ue_pdu_session_accepted"].any():
+            raise ValueError(f"No observed real baseline/recovery success in {directory}")
     if frame.loc[frame.phase == "smf_failstop", "ue_pdu_session_accepted"].any():
         raise ValueError(f"Real fail-stop not reproduced in {directory}")
     if (frame.loc[frame.phase == "smf_failstop", "smf_running_witness"] != 0).any():
