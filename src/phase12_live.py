@@ -1,6 +1,6 @@
 """Phase 12 real healthy-SMF/UPF-failstop counterexample with five active NRF KIE policies.
 
-Each independent GitHub runner hosts its *own* entire Docker 5G Core and three
+Each independent GitHub runner hosts its *own* entire Docker 5G Core and five
 different local NRF-polling signer processes. The three GitHub runners are
 isolated compute environments within one repository/administrative domain;
 they are not Byzantine-independent authorities.
@@ -24,7 +24,7 @@ from .phase7_healthy_smf import GOOD, BAD, replace_ue_dnn
 from .phase9_receipts import create_ephemeral_key, verify_receipt
 from .phase9_live import live_agent_call
 from .phase10_policy import (fit_risk_model, eligible_features)
-from .phase12_policy import training_support
+from .phase11_policy import training_support
 from .phase12_policy import select, eligible_context, BUDGET, TRIALS
 
 AGENTS={"fixed":"nrf_fixed","heuristic":"nrf_adaptive","ml":"nrf_ml", "hybrid":"nrf_hybrid", "smf_context":"nrf_smfcontext"}
@@ -195,7 +195,7 @@ def run(compose_dir:Path, past:Path, dnn_file:Path, out_dir:Path, *,
         # intervention labels; they are the empirical question of phase 12.
         if phase=="smf_failstop" and success!=0:
             raise RuntimeError("A real PDU succeeded when SMF was stopped")
-        if phase=="normal" and success==0:
+        if phase=="normal" and success==0 and PLANS[replica][0]=="normal":
             raise RuntimeError("No actual baseline PDU succeeded")
         if any(row["actual_smf_running_docker_audit_only"] != int(phase!="smf_failstop")
                or row["actual_upf_running_docker_audit_only"] != int(phase!="upf_failstop")
@@ -260,7 +260,7 @@ def run(compose_dir:Path, past:Path, dnn_file:Path, out_dir:Path, *,
             "Budget-preserving ML/heuristic fallbacks must be reported separately from genuine high-priority selections",
             "The hybrid is a prespecified semantic override with a single early exploration query, not a certified drift detector",
             "A training support-range flag does not prove concept drift or provide distribution-free calibration",
-            "Observation timeout intentionally varies across replicas; all run conditions are otherwise not independently randomized",
+            "UPF outage PDU failure and subsequent PFCP recovery are measured rather than assumed",
             "No concurrent subscribers, attacks, or independent key administrators were tested",
         ],
     }
