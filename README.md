@@ -142,3 +142,16 @@ Three new disposable Open5GS/UERANSIM deployments completed **60 real PDU attemp
 Three disposable real Open5GS/UERANSIM 5G Core labs completed 36 UE PDU attempts, with 12/12 normal successes, **0/12 during a controlled SMF network-namespace UDP/8805 PFCP OUTPUT drop**, and 12/12 successes after removal **without stopping either SMF or UPF**. NRF still advertised SMF and UPF still listened on UDP/8805 throughout. Host firewall counters independently counted **253 actually dropped N4 packets** (83, 88, 82), and passive tshark decoded real PFCP Heartbeat/Association Setup/Session Establishment message occurrence counts. A separate runner verified **27 signed KIE and rejected 27 replays**. Raw packet captures and private keys are not published.
 
 **Research limit:** Host firewall counters and UDP captures are privileged lab evidence under one administrative trust domain, not NF-attested PFCP Association and not indicators of deliberate stealth compromise. PFCP capture frame occurrences are not unique UE sessions. These results establish a concrete operational counterexample to endpoint-status-only NRF/UPF KIE health checks.
+
+
+## Phase 15 — real per-UE PFCP transaction windows and selective N4 loss
+
+[Verified research results](docs/PHASE15_RESULTS.md) · [preregistered protocol](docs/PHASE15_PROTOCOL.md) · [formal evidence/trust semantics](docs/PHASE15_SEMANTICS.md) · [successful GitHub Actions (4/4 jobs)](https://github.com/verge88/article_5G/actions/runs/38161512336).
+
+Three new disposable Open5GS/UERANSIM core networks performed **48 genuine PDU procedures**. Each procedure was measured with its own short-lived real PFCP PCAP, immediately sanitized into request/response counts and paired by \`pfcp.seqno\`, reversed UDP endpoints and time within that UE attempt's capture window. Raw IPs, subscriber identifiers, seq numbers, SEIDs, raw packets, and private signing keys were **not** published.
+
+**Prespecified result:** Normal: 12/12 successful UE PDU, 12 observed PFCP Request/Response pairs; deterministic every-second selected outgoing SMF N4 packet drop: **12/12 successful**, **12/12 pairs despite 56 actual PFCP packet drops**; complete SMF N4 egress drop: **0/12 successful**, 0 observed session request/response pairs with **241 actual PFCP packets dropped**; recovery 12/12 successful with 12 pairs. A separate compute runner reverified **72/72 signed control-information receipts and rejected 72/72 replays**, including 48 genuine per-trial PFCP KIE and 24 NRF/UPF checks.
+
+**Caveats:** Selective drops may have affected control messages unrelated to the tested session, so the experiment does **not** establish a PFCP retransmission rate or session-message loss ratio. PFCP pairing in the dedicated time window does **not** prove binding to the specific NAS PDU ID. The N4 firewall counter/capture is a privileged host witness, not an independent trust domain or proof of malicious compromise.
+
+**Reproducibility:** initial trial [38161209566](https://github.com/verge88/article_5G/actions/runs/38161209566) failed after healthy PDU because the nth-rule counter was parsed from unstable \`iptables -L\` text. The successful trial reran **all three complete networks afresh**, with the counter read from canonical \`iptables-save -c\`. No incomplete initial observations were included in the final metrics.
