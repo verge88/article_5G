@@ -217,6 +217,7 @@ def run(real_dir, dnn_path, out_dir):
 
     results = []
     rows_audit = []
+    triage_rows = []
     for cohort_name in ("original_303", "healthy_dnn_707"):
         raw = datasets[cohort_name]
         for scenario in SCENARIOS:
@@ -230,6 +231,27 @@ def run(real_dir, dnn_path, out_dir):
                 strict, strict_reasons = tri_state_policy(frame)
                 context, context_reasons = tri_state_policy(frame, use_context=True)
                 oracle, oracle_reasons = tri_state_policy(frame, use_context=True, lab_oracle=True)
+                # Data Mining has an explicitly limited role: ranking reports
+                # that cannot yet be decided, for possible *future* KIE checks.
+                # No additional probes are actually sent in this experiment.
+                undecided = np.flatnonzero(context == -1)
+                if len(undecided):
+                    prioritizer = rf["with_kie"][0]
+                    priority_score = prioritizer.predict_proba(
+                        rf_features(frame, ABLATIONS["with_kie"]))[:, 1]
+                    ranked = undecided[np.argsort(-priority_score[undecided], kind="stable")]
+                    budget = min(4, len(ranked))
+                    truth_labels = frame.tampered.to_numpy(dtype=int)
+                    triage_rows.append({
+                        "cohort": cohort_name,
+                        "source_fault": scenario,
+                        "fault_fraction_of_real_trials": frac,
+                        "n_undecided_reports": len(undecided),
+                        "hypothetical_review_budget_reports": budget,
+                        "rf_precision_at_budget": float(truth_labels[ranked[:budget]].mean()),
+                        "unprioritized_undecided_prevalence": float(truth_labels[undecided].mean()),
+                        "review_performed": False,
+                    })
                 methods.update({
                     "Policy_strict_UE_AMF": strict,
                     "Policy_contextual_UE_AMF": context,
@@ -265,6 +287,7 @@ def run(real_dir, dnn_path, out_dir):
     frame = pd.DataFrame(results)
     frame.to_csv(out_dir / "method_comparison.csv", index=False)
     pd.DataFrame(rows_audit).to_csv(out_dir / "decision_reasons.csv", index=False)
+    pd.DataFrame(triage_rows).to_csv(out_dir / "offline_reprobe_priority.csv", index=False)
     metadata = {
         "origin": "72 real Open5GS PDU outcomes in phase 4 and 18 independent real PDU outcomes in phase 7",
         "real_network_measurements_total": 90,
@@ -288,6 +311,7 @@ def run(real_dir, dnn_path, out_dir):
             "Lab Docker oracle is not deployable 3GPP attestation",
             "Reject/clear/abstain categories are about report consistency, NOT classification of cyberattacks",
             "No independent field sample, concurrent UEs, SLA latency bounds, or adversarial NF semantics",
+            "RF ranks unresolved reports for hypothetical additional KIE verification only; no real reprobes or resource savings measured",
         ],
     }
     (out_dir/"metadata.json").write_text(
