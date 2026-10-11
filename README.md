@@ -87,3 +87,12 @@ A previously trained Random Forest-based falsified-report classifier falsely ala
 [Verified scientific results](docs/PHASE8_RESULTS.md) · [experimental protocol](docs/PHASE8_PROTOCOL.md) · [source](src/phase8_contextual.py) · [Actions](.github/workflows/phase8-contextual.yml).
 
 The eighth study reuses 90 real Open5GS/ UERANSIM PDU-session outcomes from earlier Actions runs. False NF reports and witness faults are introduced **OFFLINE** and are not real compromised SMFs. Results show a three-valued context-aware policy can improve decision coverage on valid unsupported-DNN denials relative to a strict UE–AMF corroboration policy, without measured FPR change in this tiny laboratory sample. Nevertheless, a simpler direct UE–NRF disagreement rule outperforms it on clean witness data, and colluding corrupt observers invalidate both methods. Data Mining prioritization for undecided reports is evaluated only offline; no active follow-up KIE was sent in phase 8. Read limitations before citing these results.
+
+
+## Phase 9 — live signed active KIE under a fixed query budget
+
+[Verified research results](docs/PHASE9_RESULTS.md) · [preregistered protocol](docs/PHASE9_PROTOCOL.md) · [trust assumptions and architecture](docs/PHASE9_ARCHITECTURE.md) · [successful GitHub Actions run](https://github.com/verge88/article_5G/actions/runs/38143787757).
+
+In a real isolated Open5GS/UERANSIM lab, 16 genuine PDU attempts were made under normal, unauthorized DNN, controlled SMF stop and recovery conditions. Two Ed25519-signed active NRF discovery poller processes performed exactly 4 real HTTP/2 polls each. An adaptive context heuristic selected 4/4 fail-stop trials for active KIE, compared with 1/4 under periodic sampling, for the same request budget. Eight valid signed receipts and 48 successful rejection checks (field tampering, replay, stale receipt etc.) are preserved with PUBLIC keys but not secret key material.
+
+**Caveats:** both poller processes share the same GitHub runner and trust domain; this is not independent attestation or standard 3GPP authentication, and the experiment does not perform any malicious SMF compromise. Adaptive selection uses a predefined heuristic, not Data Mining, and body bytes are not total network overhead. The results must not be framed as attack-detection Recall or general operator-network performance.
