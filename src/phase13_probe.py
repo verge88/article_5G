@@ -43,7 +43,17 @@ def upf_namespace_socket() -> dict:
     except (subprocess.TimeoutExpired, OSError):
         accessible=False
         has_socket=None
+    # Read-only host runtime status is a PRIVILEGED lab witness. It is
+    # intentionally distinct from the UPF PFCP socket observation and is
+    # not acceptable as a deployable independent network-function attestation.
+    try:
+        result=subprocess.run(["docker","inspect","--format","{{.State.Running}}","upf"],
+                              capture_output=True,text=True,timeout=4)
+        runtime=(result.stdout.strip()=="true") if result.returncode==0 else None
+    except (subprocess.TimeoutExpired,OSError):
+        runtime=None
     return {
+        "docker_runtime_running_privileged_lab_only":runtime,
         "namespace_accessible":accessible,
         "pfcp_udp_8805_socket_present":has_socket,
         "probe_elapsed_ms":round((time.monotonic()-start)*1000,3),
