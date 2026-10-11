@@ -37,6 +37,12 @@ def paired_real(df, seed, surrogate):
         data[["amf_count", "registered"]]).astype(float)
     # Context is derived from the requesting UE configuration and the
     # provisioning database — not the measured outcome or attack label.
+    context = df[["deployment", "phase", "trial", "requested_dnn_category"]].copy()
+    context["deployment"] = context["deployment"].astype(str)
+    data = data.merge(context, on=["deployment", "phase", "trial"],
+                      how="left", validate="many_to_one")
+    if data.requested_dnn_category.isna().any():
+        raise ValueError("Missing verified DNN request/subscription context")
     data["dnn_authorized"] = (data["requested_dnn_category"] ==
                               "subscriber_provisioned").astype(float)
     return data
