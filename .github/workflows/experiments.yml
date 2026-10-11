@@ -1,0 +1,44 @@
+name: research-experiments
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-hierarchical-kie:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Unit tests and data-leakage checks
+        run: python -m pytest -q
+      - name: Scientific feature ablation and shifted tests
+        run: python -m src.experiment --out-dir results
+      - name: Preserve environment and source revision
+        if: always()
+        run: |
+          mkdir -p results
+          python -m pip freeze > results/environment.txt
+          git rev-parse HEAD > results/source_commit.txt
+      - name: Save reproducible research artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 5g-kie-experiment-results
+          path: results/
+          if-no-files-found: warn
+          retention-days: 90
