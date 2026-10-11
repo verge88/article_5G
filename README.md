@@ -47,3 +47,13 @@ The [reproducible Open5GS + UERANSIM workflow](.github/workflows/real-5gc-pdu.ym
 - [Successful GitHub Actions execution](https://github.com/verge88/article_5G/actions/runs/38135609531)
 
 The experiment observed 3/3 successful PDU establishments normally, 0/3 while the SMF process was stopped, and 3/3 after recovery. Passive packet metadata included 127 HTTP/2 path occurrences of the `Nsmf_PDUSession` family (not 127 unique sessions). No inference about production intrusion-detection accuracy is warranted from nine procedure trials.
+
+## Phase 4 — actual PDU outcomes, offline falsified monitoring reports
+
+Three separate GitHub-hosted Open5GS/UERANSIM deployments executed 8 normal, 8 SMF-fail-stop and 8 recovery PDU attempts each (72 actual network trials total). Independent HTTP/2 observations included 833 Nsmf_PDUSession path occurrences. The analysis performs deployment-separated train/validation/test and introduces deliberately false *monitoring reports after collection*, not an on-network NF attack.
+
+On the 24-trial held-out deployment, RF local-only detected 16/24 injected lies (FPR 0/24 on truthful twin reports); RF with independent PDU-outcome KIE detected 24/24 (FPR 0/24). Enlarging to additional NRF/AMF or privileged Docker witnesses did not improve recall and produced one false alarm. The apparently perfect 24/24 result is tied to how lies were constructed and does **not** demonstrate effective detection of real compromised NF in production.
+
+- [Experimental protocol](docs/PHASE4_PROTOCOL.md)
+- [Measured results and limitations](docs/PHASE4_RESULTS.md)
+- [Successful GitHub Actions run](https://github.com/verge88/article_5G/actions/runs/38136404527)
