@@ -1,0 +1,143 @@
+name: phase4-real-pdu-telemetry-integrity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase4-integrity.yml"
+      - "src/phase4_eval.py"
+      - "tests/test_phase4_eval.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-pdu-deployments:
+    name: Real 5GC deployment ${{ matrix.deployment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 27
+    strategy:
+      fail-fast: false
+      matrix:
+        deployment: ["101", "202", "303"]
+    steps:
+      - name: Checkout research code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install experiment dependencies
+        run: |
+          python -m pip install -r requirements.txt pycryptodome
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcpdump tshark
+      - name: Static and scientific integrity checks
+        run: |
+          python -m py_compile src/pdu_lab.py src/phase4_eval.py src/real_sbi.py src/trace_audit.py
+          python -m pytest -q tests/test_pdu_lab.py tests/test_phase4_eval.py
+      - name: Checkout exact external 5GC deployment source
+        run: |
+          git clone --filter=blob:none https://github.com/herlesupreeth/docker_open5gs.git upstream_open5gs
+          git -C upstream_open5gs checkout 1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3
+          mkdir -p results/phase4
+          git rev-parse HEAD > results/phase4/research_commit.txt
+          git -C upstream_open5gs rev-parse HEAD > results/phase4/upstream_commit.txt
+          echo '${{ matrix.deployment }}' > results/phase4/deployment_id.txt
+      - name: Pull Open5GS and UERANSIM reproducibility digests
+        run: |
+          docker pull ghcr.io/herlesupreeth/docker_open5gs:master
+          docker tag ghcr.io/herlesupreeth/docker_open5gs:master docker_open5gs
+          docker pull ghcr.io/herlesupreeth/docker_ueransim:master
+          docker tag ghcr.io/herlesupreeth/docker_ueransim:master docker_ueransim
+          docker image inspect ghcr.io/herlesupreeth/docker_open5gs:master \
+            --format '{{json .RepoDigests}}' > results/phase4/open5gs_image_digest.txt
+          docker image inspect ghcr.io/herlesupreeth/docker_ueransim:master \
+            --format '{{json .RepoDigests}}' > results/phase4/ueransim_image_digest.txt
+      - name: Launch isolated Open5GS 5G SA and authenticate test UE
+        run: |
+          bash scripts/prepare_5gc.sh
+      - name: Start ephemeral SBI path capture
+        run: |
+          sudo tcpdump -i any -s 0 -w "$RUNNER_TEMP/phase4_sbi.pcap" 'tcp port 7777' >/dev/null 2>&1 &
+          echo $! > "$RUNNER_TEMP/sbi_capture.pid"
+          sleep 2
+      - name: Collect real PDU outcomes across normal, failure and recovery
+        env:
+          ALLOW_LAB_ONLY_SMF_FAILURE: "yes"
+        run: |
+          python -m src.pdu_lab \
+            --compose-dir upstream_open5gs \
+            --out-dir results/phase4 \
+            --repeats 8 \
+            --normal-timeout 16 \
+            --failure-timeout 10
+      - name: Finish ephemeral capture
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/sbi_capture.pid" ]; then
+            sudo kill -SIGINT "$(cat "$RUNNER_TEMP/sbi_capture.pid")" || true
+            sleep 2
+          fi
+      - name: Verify genuine Nsmf SBI service observations
+        run: |
+          python -m src.trace_audit --capture "$RUNNER_TEMP/phase4_sbi.pcap" --out-dir results/phase4
+          python -c 'import json; p=json.load(open("results/phase4/sbi_trace_summary.json")); assert p["observed_nsmf_pdu_session"], "No genuine Nsmf traffic found"'
+      - name: Preserve dependency versions
+        if: always()
+        run: |
+          mkdir -p results/phase4
+          python -m pip freeze > results/phase4/environment.txt
+      - name: Upload only sanitized per-deployment measurement evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase4-real-${{ matrix.deployment }}
+          path: results/phase4/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Tear down disposable lab and erase raw packet capture
+        if: always()
+        run: |
+          docker rm -f nr_ue nr_gnb || true
+          if [ -d upstream_open5gs ]; then
+            cd upstream_open5gs
+            docker compose -f sa-deploy.yaml down -v || true
+          fi
+          sudo rm -f "$RUNNER_TEMP/phase4_sbi.pcap"
+
+  analyze-falsified-monitor-reports:
+    runs-on: ubuntu-latest
+    needs: [real-pdu-deployments]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact analysis code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install evaluation libraries
+        run: python -m pip install -r requirements.txt
+      - name: Download REAL distinct-deployment measurements
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phase4-real-*
+          path: phase4_inputs/
+          merge-multiple: false
+      - name: Test split and injected-falsification rules
+        run: python -m pytest -q tests/test_phase4_eval.py
+      - name: Train, calibrate and evaluate without deployment leakage
+        run: |
+          python -m src.phase4_eval --input-dir phase4_inputs --out-dir results/phase4-analysis
+          python -m pip freeze > results/phase4-analysis/environment.txt
+          git rev-parse HEAD > results/phase4-analysis/source_commit.txt
+      - name: Upload auditable metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase4-integrity-analysis-results
+          path: results/phase4-analysis/
+          if-no-files-found: warn
+          retention-days: 90
