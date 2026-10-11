@@ -62,14 +62,31 @@ def remove_partial(pid:int)->None:
 
 
 def kernel_drop_count(pid:int)->int:
-    rules=cmd(["sudo","-n","nsenter","-t",str(pid),"-n",
-              "iptables","-nvx","-L","OUTPUT"],timeout=12)
-    # Both full & nth statistic DROP only target SMF egress UDP 8805.
-    matches=[int(m.group(1)) for m in re.finditer(
-        r"(?mi)^\s*(\d+)\s+\d+\s+DROP\s+udp\s+.*\bdpt:8805\b",rules)]
-    if len(matches)!=1:
-        raise RuntimeError(f"Expected exactly one active, measurable PFCP egress rule; got {len(matches)}")
-    return matches[0]
+    """Read real kernel counters from canonical iptables-save, not -L prose.
+
+    In the nth/statistic matcher, the `iptables -L` rendering can reorder or
+    omit match detail. -c iptables-save stores unambiguous [packets:bytes]
+    against the full actual OUTPUT rule. Refuse ambiguous or absent rules.
+    """
+    saved=cmd(["sudo","-n","nsenter","-t",str(pid),"-n",
+               "iptables-save","-c","-t","filter"],timeout=12)
+    found=[]
+    for ln in saved.splitlines():
+        if not ln.startswith("[") or "-A OUTPUT " not in ln:
+            continue
+        if not (re.search(r"--dport\s+8805(?:\s|$)",ln) and
+                re.search(r"(?:^|\s)-j\s+DROP(?:\s|$)",ln) and
+                re.search(r"(?:^|\s)-p\s+udp(?:\s|$)",ln)):
+            continue
+        m=re.match(r"^\[(\d+):(\d+)\]",ln)
+        if m:
+            found.append(int(m.group(1)))
+    if len(found)!=1:
+        raise RuntimeError(
+            "Expected exactly one SMF PFCP OUTPUT DROP in actual iptables-save counters; "
+            f"observed {len(found)}. No missing packet evidence will be invented."
+        )
+    return found[0]
 
 
 def run(compose_dir:Path,out:Path,replica:str)->dict:
