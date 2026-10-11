@@ -1,0 +1,285 @@
+"""Phase 12 real healthy-SMF/UPF-failstop counterexample with five active NRF KIE policies.
+
+Each independent GitHub runner hosts its *own* entire Docker 5G Core and three
+different local NRF-polling signer processes. The three GitHub runners are
+isolated compute environments within one repository/administrative domain;
+they are not Byzantine-independent authorities.
+
+Phases are controlled legitimate failures, not malicious NF compromise.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+from pathlib import Path
+import secrets
+import tempfile
+import time
+from collections import Counter
+
+from .pdu_lab import cmd, state, trial
+from .phase7_healthy_smf import GOOD, BAD, replace_ue_dnn
+from .phase9_receipts import create_ephemeral_key, verify_receipt
+from .phase9_live import live_agent_call
+from .phase10_policy import (fit_risk_model, eligible_features)
+from .phase12_policy import training_support
+from .phase12_policy import select, eligible_context, BUDGET, TRIALS
+
+AGENTS={"fixed":"nrf_fixed","heuristic":"nrf_adaptive","ml":"nrf_ml", "hybrid":"nrf_hybrid", "smf_context":"nrf_smfcontext"}
+PLANS={
+    "11":("normal","upf_failstop","recovery_upf","smf_failstop","recovery_smf"),
+    "22":("normal","smf_failstop","recovery_smf","upf_failstop","recovery_upf"),
+    "33":("upf_failstop","recovery_upf","normal","smf_failstop","recovery_smf"),
+}
+
+
+def csv_write(path:Path, items:list[dict]):
+    if not items:
+        raise ValueError(f"No real measurements for {path}")
+    with path.open("w",newline="",encoding="utf-8") as f:
+        writer=csv.DictWriter(f,fieldnames=list(items[0]))
+        writer.writeheader()
+        writer.writerows(items)
+
+
+def run(compose_dir:Path, past:Path, dnn_file:Path, out_dir:Path, *,
+        replica:str, endpoint:str="http://172.22.0.12:7777",
+        normal_timeout:int=18, invalid_timeout:int=14, failstop_timeout:int|None=None):
+    if os.environ.get("ALLOW_PHASE12_DISPOSABLE_5GC")!="yes":
+        raise RuntimeError("Only explicitly approved isolated 5GC lab can run fault trials")
+    if "upstream_open5gs" not in str(compose_dir.resolve()):
+        raise RuntimeError("Refusing to mutate a non-laboratory UE or SMF")
+    if replica not in PLANS:
+        raise ValueError("Unknown preregistered replica")
+    failstop_timeout=12 if failstop_timeout is None else failstop_timeout
+    if not all(state(n) for n in ("nrf","amf","smf","upf","nr_gnb")):
+        raise RuntimeError("Actual Open5GS and gNB must be up")
+    cfg=compose_dir/"ueransim"/"ueransim-ue.yaml"
+    original=cfg.read_text(encoding="utf-8")
+    if original.count(GOOD)!=1 or BAD in original:
+        raise ValueError("Open5GS UE config is not at expected authorized baseline")
+    out_dir.mkdir(parents=True,exist_ok=True)
+    model,threshold,model_audit=fit_risk_model(past,dnn_file)
+    support=training_support(past,dnn_file)
+    model_audit["phase12_training_only_support"]=support
+    (out_dir/"model_training_audit.json").write_text(
+        json.dumps(model_audit,indent=2,ensure_ascii=False),encoding="utf-8")
+    quotas={arm:BUDGET for arm in AGENTS}
+    seq={agent:0 for agent in AGENTS.values()}
+    pending={}
+    accepted={}
+    measurements=[]
+    requests=[]
+    signed_receipts=[]
+    t_start=time.monotonic()
+    phase_to_dnn={phase:GOOD for phase in ("normal","upf_failstop","recovery_upf","smf_failstop","recovery_smf")}
+    with tempfile.TemporaryDirectory(prefix="phase12_signing_keys_") as temporary:
+        private={arm:Path(temporary)/(arm+".pem") for arm in AGENTS}
+        keys={AGENTS[arm]:create_ephemeral_key(path) for arm,path in private.items()}
+        try:
+            for phase in PLANS[replica]:
+                target=phase_to_dnn[phase]
+                cfg.write_text(replace_ue_dnn(original,target),encoding="utf-8")
+                # Restore both NFs before a new phase; a prior UPF outage
+                # can affect PFCP association even after Docker is running.
+                if not state("smf"):
+                    cmd(["docker","start","smf"],timeout=25)
+                    time.sleep(18)
+                if not state("upf"):
+                    cmd(["docker","start","upf"],timeout=25)
+                    time.sleep(24)
+                if phase=="smf_failstop":
+                    cmd(["docker","stop","-t","1","smf"],timeout=20)
+                elif phase=="upf_failstop":
+                    cmd(["docker","stop","-t","1","upf"],timeout=20)
+                if state("smf") != (phase!="smf_failstop") or state("upf") != (phase!="upf_failstop"):
+                    raise RuntimeError("Lab SMF/UPF state transition failed")
+                for phase_trial in range(4):
+                    index=len(measurements)
+                    if state("smf") != (phase!="smf_failstop") or state("upf") != (phase!="upf_failstop"):
+                        raise RuntimeError("Actual SMF or UPF departed preregistered lab state")
+                    timeout=(failstop_timeout if phase=="smf_failstop" else
+                             invalid_timeout if phase=="upf_failstop" else normal_timeout)
+                    record=trial(compose_dir,phase,phase_trial,timeout,1.)
+                    # Current trial outcome and AMF counters ARE available
+                    # to these scheduling methods, but Docker status, audit
+                    # intervention labels and NRF discovery are NOT.
+                    obs=eligible_features(record,target==GOOD)
+                    decisions,prob,reason_detail=select(
+                        index,obs,eligible_context(record),model,threshold,support,quotas)
+                    row={
+                        "trial_token":f"rep{replica}_trial{index:03d}",
+                        "audit_phase_not_in_policy":phase,
+                        "trial_index":index,
+                        "ue_pdu_success_observed":int(record["ue_pdu_session_accepted"]),
+                        "ue_registration_observed":int(record["ue_registration_seen"]),
+                        "dnn_authorized_coordinator_context":int(target==GOOD),
+                        "actual_smf_running_docker_audit_only":int(state("smf")),
+                        "actual_upf_running_docker_audit_only":int(state("upf")),
+                        "smf_context_lines_pre_probe":int(record["smf_sm_context_log_lines"]),
+                        "ml_score":round(prob,6),
+                        "ml_threshold_frozen":threshold,
+                        "ood_training_support_flag":reason_detail["outside_training_support"],
+                        "semantic_gate_trigger":reason_detail["semantic_failure"],
+                        "no_smf_context_log_pre_probe":reason_detail["no_smf_context_log"],
+                        "hybrid_reason":reason_detail["reasons"]["hybrid"],
+                        **{f"selection_reason_{arm}":reason_detail["reasons"][arm] for arm in AGENTS},
+                        "amf_sm_context_log_lines":int(record["amf_sm_context_log_lines"]),
+                        "elapsed_ue_observation_seconds":round(float(record["elapsed_s"]),4),
+                        **{f"probed_{name}":0 for name in AGENTS},
+                        **{f"fallback_{name}":0 for name in AGENTS},
+                    }
+                    receipt_clock=time.monotonic()
+                    for arm in AGENTS:
+                        if not decisions[arm]:continue
+                        if quotas[arm]<1:
+                            raise RuntimeError("Exceeded equal active query budget")
+                        agent=AGENTS[arm]
+                        seq[agent]+=1
+                        challenge=secrets.token_hex(16)
+                        pending[challenge]=(agent,row["trial_token"],seq[agent])
+                        envelope,proc_ms=live_agent_call(
+                            private[arm],agent,challenge,row["trial_token"],
+                            seq[agent],endpoint)
+                        verified=verify_receipt(envelope,registered_keys=keys,
+                            pending=pending,accepted_sequences=accepted,max_age_s=20.)
+                        if not verified:
+                            raise RuntimeError("Live Ed25519-signed NRF receipt failed verification")
+                        signed_receipts.append(envelope)
+                        nrf=envelope["payload"]["observation"]
+                        requests.append({
+                            "replica":replica,
+                            "arm":arm,
+                            "trial_token":row["trial_token"],
+                            "audit_phase_not_in_policy":phase,
+                            "verified":int(verified),
+                            "http2":int(nrf["http_version"]=="2"),
+                            "http_status":nrf["http_status"],
+                            "advertised_smf_profiles":nrf["advertised_smf_profiles"],
+                            "nrf_registry_absence":int(
+                                nrf["http_version"]=="2" and (
+                                    (nrf["http_status"]==200 and nrf["advertised_smf_profiles"]==0)
+                                    or nrf["http_status"]==404
+                                )),
+                            "response_body_bytes":nrf["response_body_bytes"],
+                            "curl_response_ms":nrf["latency_ms"],
+                            "agent_process_ms":proc_ms,
+                            "time_since_ue_observation_ms":round(1000*(time.monotonic()-receipt_clock),3),
+                            "nonce_hex":challenge,
+                            "sequence":seq[agent],
+                            "key_id":envelope["payload"]["key_id"],
+                        })
+                        row[f"probed_{arm}"]=1
+                        # Forced filling is explicit and never counted as
+                        # a genuine risk trigger.
+                        row[f"fallback_{arm}"]=int(reason_detail["reasons"][arm]=="quota_fallback")
+                        quotas[arm]-=1
+                    measurements.append(row)
+        finally:
+            cfg.write_text(original,encoding="utf-8")
+            if not state("smf"):
+                cmd(["docker","start","smf"],timeout=25)
+                time.sleep(6)
+            if not state("upf"):
+                cmd(["docker","start","upf"],timeout=25)
+                time.sleep(8)
+        (out_dir/"public_agent_keys.json").write_text(json.dumps(keys,indent=2),encoding="utf-8")
+    if len(measurements)!=TRIALS or any(quotas.values()):
+        raise RuntimeError(f"Incomplete real UE trials or unmatched live query budgets: {quotas}")
+    for phase in PLANS[replica]:
+        block=[row for row in measurements if row["audit_phase_not_in_policy"]==phase]
+        success=sum(row["ue_pdu_success_observed"] for row in block)
+        # Do not infer outcomes of UPF outages or PFCP recovery from
+        # intervention labels; they are the empirical question of phase 12.
+        if phase=="smf_failstop" and success!=0:
+            raise RuntimeError("A real PDU succeeded when SMF was stopped")
+        if phase=="normal" and success==0:
+            raise RuntimeError("No actual baseline PDU succeeded")
+        if any(row["actual_smf_running_docker_audit_only"] != int(phase!="smf_failstop")
+               or row["actual_upf_running_docker_audit_only"] != int(phase!="upf_failstop")
+               for row in block):
+            raise RuntimeError(f"Lab state inconsistent in {phase}")
+    csv_write(out_dir/"live_trial_schedule.csv",measurements)
+    csv_write(out_dir/"live_active_nrf_probes.csv",requests)
+    (out_dir/"signed_receipts.jsonl").write_text(
+        "".join(json.dumps(env,sort_keys=True)+"\n" for env in signed_receipts),encoding="utf-8")
+    arms={}
+    for arm in AGENTS:
+        rs=[x for x in requests if x["arm"]==arm]
+        if len(rs)!=BUDGET:
+            raise RuntimeError("Unauditable unequal budget")
+        arms[arm]={
+            "n_actual_live_http2_requests":len(rs),
+            "n_http2_responses":sum(x["http2"] for x in rs),
+            "n_signed_receipts":sum(x["verified"] for x in rs),
+            "failstop_trials_polled":sum(x["audit_phase_not_in_policy"]=="smf_failstop" for x in rs),
+            "failstop_registry_absence_evidence":sum(
+                x["nrf_registry_absence"] for x in rs if x["audit_phase_not_in_policy"]=="smf_failstop"),
+            "healthy_trials_polled":sum(x["audit_phase_not_in_policy"]!="smf_failstop" for x in rs),
+            "healthy_registry_absence_evidence":sum(
+                x["nrf_registry_absence"] for x in rs if x["audit_phase_not_in_policy"]!="smf_failstop"),
+            "n_forced_budget_fallbacks":sum(x[f"fallback_{arm}"] for x in measurements),
+            "sum_http_response_body_bytes":sum(x["response_body_bytes"] for x in rs),
+            "sum_curl_http_time_ms":round(sum(x["curl_response_ms"] for x in rs),3),
+            "sum_poll_agent_process_ms":round(sum(x["agent_process_ms"] for x in rs),3),
+            "schedule_by_phase":dict(Counter(x["audit_phase_not_in_policy"] for x in rs)),
+        }
+    summary={
+        "experimental_basis":"REAL Open5GS/ UERANSIM PDU outcomes and actual HTTP/2 NRF requests",
+        "replica":replica,
+        "runner":"one independent ephemeral GitHub runner; same repo administrative authority",
+        "n_ue_attempts":len(measurements),
+        "n_controlled_smf_outages":4,
+        "n_controlled_upf_outages":4,
+        "per_phase_actual_ue_successes":dict(
+            (phase,sum(row["ue_pdu_success_observed"] for row in measurements
+                       if row["audit_phase_not_in_policy"]==phase)) for phase in PLANS[replica]),
+        "failstop_observation_timeout_seconds":failstop_timeout,
+        "hybrid_exploration_request_per_runner":1,
+        "n_active_requests":len(requests),
+        "budget_per_arm":BUDGET,
+        "wall_experiment_elapsed_s":round(time.monotonic()-t_start,3),
+        "arms":arms,
+        "ml_validation_auc_prior_network":model_audit["validation_auc"],
+        "ml_original_heldout_auc_prior_network":model_audit["original_heldout_auc"],
+        "critical_caveats":[
+            "All three local agents and their NRF backend share one ephemeral runner, not separate trust domains",
+            "Three runners in one GitHub repository are still under one administrative authority",
+            "SMF/UPF fail-stop are legitimate controlled failures, not cyberattacks",
+            "The SMF own logs are untrusted if SMF is malicious; no independent attestation is tested",
+            "UPF process recovery does not automatically prove restored N4/PFCP association",
+            "Actual laboratory SMF-running witness used for AUDIT only, not inference",
+            "ML supervised target is controlled process outage, not compromise",
+            "NRF registry absence is neither authenticated semantic proof of NF health nor proof of compromise",
+            "Only HTTP payload bytes counted; no request, TLS, transport, or network-wide overhead",
+            "A new signed receipt proves origin of that agent key, not that the underlying measurement is truthful",
+            "All controls are sent after UE procedure observation; no time-to-first-failure detection is established",
+            "All five policies query the SAME NRF and can influence each other's timing",
+            "Budget-preserving ML/heuristic fallbacks must be reported separately from genuine high-priority selections",
+            "The hybrid is a prespecified semantic override with a single early exploration query, not a certified drift detector",
+            "A training support-range flag does not prove concept drift or provide distribution-free calibration",
+            "Observation timeout intentionally varies across replicas; all run conditions are otherwise not independently randomized",
+            "No concurrent subscribers, attacks, or independent key administrators were tested",
+        ],
+    }
+    (out_dir/"live_summary.json").write_text(
+        json.dumps(summary,indent=2,ensure_ascii=False),encoding="utf-8")
+    return summary
+
+
+def main():
+    p=argparse.ArgumentParser()
+    p.add_argument("--replica",choices=tuple(PLANS),required=True)
+    p.add_argument("--compose-dir",type=Path,default=Path("upstream_open5gs"))
+    p.add_argument("--previous-data",type=Path,default=Path("phase4_inputs"))
+    p.add_argument("--dnn-measurements",type=Path,default=Path("phase7_inputs/real_pdu_windows.csv"))
+    p.add_argument("--out",type=Path,default=Path("results/phase12"))
+    a=p.parse_args()
+    print(json.dumps(run(a.compose_dir,a.previous_data,a.dnn_measurements,a.out,
+                         replica=a.replica),indent=2,ensure_ascii=False))
+
+
+if __name__=="__main__":
+    main()
