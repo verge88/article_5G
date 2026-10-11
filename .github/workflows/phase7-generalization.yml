@@ -1,0 +1,79 @@
+name: phase7-legitimate-DNN-negative-control-DataMining
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase7-generalization.yml"
+      - "src/phase7_generalization.py"
+      - "tests/test_phase7_generalization.py"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  heldout-external-validity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact evaluation revision
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install scientific evaluation packages
+        run: python -m pip install -r requirements.txt
+      - name: Verify labels remain separate from classifier inputs
+        run: |
+          python -m py_compile src/phase7_generalization.py
+          python -m pytest -q tests/test_phase7_generalization.py tests/test_phase4_eval.py
+      - name: Retrieve prior real Open5GS PDU measurements from Phase 4
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38136404527
+          github-token: ${{ github.token }}
+          pattern: phase4-real-*
+          path: phase4_inputs/
+          merge-multiple: false
+      - name: Retrieve independent real healthy-SMF / invalid-DNN measurements from Phase 7
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38139938568
+          github-token: ${{ github.token }}
+          name: phase7-real-healthy-smf-semantic-fault
+          path: phase7_inputs/
+      - name: Verify real-trial origins and lab DNN negative-control conditions
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          for idx in (101,202,303):
+              f=Path(f"phase4_inputs/phase4-real-{idx}/pdu_trials.csv")
+              assert len(pd.read_csv(f))==24
+          frame=pd.read_csv("phase7_inputs/real_pdu_windows.csv")
+          assert len(frame)==18
+          assert (frame.smf_running_witness==1).all()
+          assert frame.loc[frame.phase=="invalid_dnn","ue_pdu_session_accepted"].eq(0).all()
+          assert frame.loc[frame.phase=="normal","ue_pdu_session_accepted"].eq(1).all()
+          assert frame.loc[frame.phase=="recovery","ue_pdu_session_accepted"].eq(1).all()
+          print("Actual 5GC source verification passed")
+          PY
+      - name: Evaluate FPR under legitimate unseen failure and fabricated telemetry
+        run: |
+          python -m src.phase7_generalization \
+            --source-dir phase4_inputs \
+            --healthy-dnn phase7_inputs/real_pdu_windows.csv \
+            --out-dir results/phase7-analysis
+          git rev-parse HEAD > results/phase7-analysis/source_commit.txt
+          python -m pip freeze > results/phase7-analysis/environment.txt
+      - name: Publish independently verifiable FPR, provenance and limitations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase7-legitimate-failure-ood-detection
+          path: results/phase7-analysis/
+          if-no-files-found: warn
+          retention-days: 90
