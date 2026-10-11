@@ -57,3 +57,12 @@ On the 24-trial held-out deployment, RF local-only detected 16/24 injected lies 
 - [Experimental protocol](docs/PHASE4_PROTOCOL.md)
 - [Measured results and limitations](docs/PHASE4_RESULTS.md)
 - [Successful GitHub Actions run](https://github.com/verge88/article_5G/actions/runs/38136404527)
+
+
+## Phase 5 — trust-aware witness reliability (reproducible real-PDU-derived experiment)
+
+[Scientific results and limitations](docs/PHASE5_RESULTS.md) · [GitHub Actions workflow](.github/workflows/phase5-reliability.yml) · [analysis source](src/phase5_reliability.py)
+
+Phase 5 reuses the three separately deployed Open5GS/UERANSIM PDU measurement artifacts from phase 4 (72 real PDU-session attempts). It introduces OFFLINE false, missing, stale and colluding witness observations, and compares local/RF methods with a simple contradiction rule and quorum methods that can abstain when observations are insufficient.
+
+**Key warning:** original PDU events are real, but adversarial manipulation is synthetic and external to the running 5G network. High attack recall in this setup does not establish deployment-grade stealth-compromise detection. Abstention coverage and trust assumptions must be reported alongside FPR and Recall.
