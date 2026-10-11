@@ -168,3 +168,14 @@ Three new disposable real Open5GS/UERANSIM 5GC deployments executed **27 genuine
 A separate GitHub Actions verifier authenticated **27/27 original Ed25519 capture-agent receipts**, rejected **27/27 replays** and independently recomputed the UE/NGAP/Nsmf/PFCP counts. Raw PCAP, SEIDs, IPs, subscriber IDs, HTTP2 headers and private keys are not exported. There is no hidden NF compromise, no authenticated independent NF owner, no standard 3GPP identity bridge and no proven cyber-intrusion detection rate.
 
 Full source artifact provenance: source commit \`a82160a2809f5dbaf5edde4f249375db0ae55e09\`; pinned Open5GS lab upstream commit \`1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3\`.
+
+
+## Phase 17 — real N3 GTP-TEID numeric bridge candidates between NGAP/N2 and PFCP/N4
+
+[Independently verified scientific results](docs/PHASE17_RESULTS.md) · [preregistered protocol](docs/PHASE17_PROTOCOL.md) · [identity proof limits](docs/PHASE17_METHOD.md) · [four successful GitHub Actions jobs](https://github.com/verge88/article_5G/actions/runs/38164328524).
+
+Three fresh disposable real Open5GS+UERANSIM cores completed **27 genuine UE PDU attempts**: normal 9/9 successful, **0/9 during SMF UDP/8805 N4 egress drop** (with both SMF and UPF running), 9/9 after recovery. The host's privileged firewall counters confirmed **204 actually dropped PFCP packets** (68, 65 and 71 per runner).
+
+Unlike Phase 16's time-only co-observation, the new private analyzer decodes actual **4-byte NGAP GTP-TEIDs** and compares them numerically to PFCP **F-TEID in type 51 Session Establishment Response** and **Outer Header Creation TEID in type 52 Session Modification Request**. In 18 successful UE windows, **18 candidate UL and 18 candidate DL numerical TEID matches** appeared, with zero ambiguous reused TEID transaction contexts *within those single-UE trial windows*. No numerical candidates were observed in nine N4 interruption windows.
+
+**Scientific limitations:** PFCP message type is filtered, but NGAP request/response direction, N3 endpoint IP, correct PFCP PDR/FAR nesting, TEID uniqueness across full session lifetime, and authenticated NGAP PDU ID → SM Context → PFCP SEID mapping are **not proven**. All 27 original signed trials retain an explicitly unproved cross-protocol identity status. A separate GitHub runner reverified **27/27 original Ed25519 KIE signatures** and rejected **27/27 replays**. The observation keys and host packet capture are under one administrative domain, not attested or independently administered 3GPP NFs; no stealth compromise or attack detection was demonstrated. Raw PCAP, subscribers' identifiers, TEIDs and SEIDs were not exported.
