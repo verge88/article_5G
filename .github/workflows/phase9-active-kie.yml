@@ -1,0 +1,108 @@
+name: phase9-live-signed-KIE-budget
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase9-active-kie.yml"
+      - "src/phase9_receipts.py"
+      - "src/phase9_live.py"
+      - "tests/test_phase9_receipts.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authenticated-active-kie-on-real-5gc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - name: Checkout exact research commit
+        uses: actions/checkout@v4
+      - name: Prepare Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install lab and signature verification dependencies
+        run: |
+          python -m pip install -r requirements.txt pycryptodome cryptography
+      - name: Test cryptographic negative controls and selection independence
+        run: |
+          python -m py_compile src/phase9_receipts.py src/phase9_live.py
+          python -m pytest -q tests/test_phase9_receipts.py tests/test_phase7_healthy_smf.py
+      - name: Load pinned disposable Open5GS lab source
+        run: |
+          git clone --filter=blob:none https://github.com/herlesupreeth/docker_open5gs.git upstream_open5gs
+          git -C upstream_open5gs checkout 1f3bcf73f926b5b7526ef3c41cd2b839c2b17ac3
+          mkdir -p results/phase9
+          git rev-parse HEAD > results/phase9/source_commit.txt
+          git -C upstream_open5gs rev-parse HEAD > results/phase9/upstream_sha.txt
+      - name: Pull Open5GS and UERANSIM actual container images
+        run: |
+          docker pull ghcr.io/herlesupreeth/docker_open5gs:master
+          docker tag ghcr.io/herlesupreeth/docker_open5gs:master docker_open5gs
+          docker pull ghcr.io/herlesupreeth/docker_ueransim:master
+          docker tag ghcr.io/herlesupreeth/docker_ueransim:master docker_ueransim
+          docker image inspect ghcr.io/herlesupreeth/docker_open5gs:master \
+            --format '{{json .RepoDigests}}' > results/phase9/open5gs_image_digest.txt
+          docker image inspect ghcr.io/herlesupreeth/docker_ueransim:master \
+            --format '{{json .RepoDigests}}' > results/phase9/ueransim_image_digest.txt
+      - name: Start real NRF AMF SMF UPF, gNB and authorized laboratory subscriber
+        run: bash scripts/prepare_5gc.sh
+      - name: Perform LIVE signed NRF checks under two equal polling budgets
+        env:
+          ALLOW_PHASE9_DISPOSABLE_5GC: "yes"
+        run: |
+          python -m src.phase9_live \
+            --compose-dir upstream_open5gs \
+            --out-dir results/phase9 --repeats 4
+      - name: Independent verification of published signed metadata
+        if: success()
+        run: |
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          from src.phase9_receipts import verify_receipt
+          base=Path("results/phase9")
+          docs=[json.loads(x) for x in (base/"signed_receipts.jsonl").read_text().splitlines()]
+          keys=json.loads((base/"lab_public_agent_keys.json").read_text())
+          pending={d["payload"]["nonce"]:
+                   (d["payload"]["agent_id"],d["payload"]["trial_token"],d["payload"]["sequence"]) for d in docs}
+          tracker={}
+          assert len(docs)==8 and len(pending)==8
+          for doc in docs:
+              assert verify_receipt(doc,registered_keys=keys,pending=pending,accepted_sequences=tracker,
+                                    max_age_s=1200)
+          assert not pending
+          result=json.loads((base/"live_summary.json").read_text())
+          assert result["n_real_ue_pdu_trials"]==16
+          assert result["polling_arms"]["fixed"]["actual_live_probes"]==4
+          assert result["polling_arms"]["adaptive"]["actual_live_probes"]==4
+          assert result["off_network_cryptographic_negative_checks"]==48
+          assert result["negative_checks_rejected"]==48
+          assert all(doc["payload"]["observation"]["http_version"]=="2" for doc in docs)
+          print("Signed and replay-safe real NRF measurements reverified from exported public keys")
+          PY
+      - name: Record exact dependencies and UTC completion date
+        if: always()
+        run: |
+          mkdir -p results/phase9
+          python -m pip freeze > results/phase9/environment.txt
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > results/phase9/completed_utc.txt
+      - name: Publish signed receipts, PUBLIC keys and actual lab probe costs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase9-live-signed-active-kie
+          path: results/phase9/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Restore lab and erase temporary secrets
+        if: always()
+        run: |
+          docker rm -f nr_ue nr_gnb || true
+          if [ -d upstream_open5gs ]; then
+            cd upstream_open5gs
+            docker compose -f sa-deploy.yaml down -v || true
+          fi
